@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
-import { Template, uploadFile, createOrder, fetchTemplate, generateCharacter } from '@/lib/api';
+import { Template, uploadFile, createOrder, fetchTemplate, faceSwap } from '@/lib/api';
 
 type Step = 'form' | 'processing' | 'preview';
 type ProcessStage = 'upload' | 'generate' | 'done';
@@ -20,6 +20,7 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
   const [photoPreview, setPhotoPreview] = useState('');
   const [pages, setPages] = useState<string[]>([]);
   const [generatedUrl, setGeneratedUrl] = useState('');
+  const [currentPage, setCurrentPage] = useState(0);
 
   if (!template) return null;
 
@@ -49,14 +50,26 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
       });
 
       const full = await fetchTemplate(template.id);
-      const templatePages = full.pages?.map((p) => p.image_url) || [];
+      const templatePages = full.pages?.filter(p => p.image_url) || [];
 
       setStage('generate');
-      const stylePrompt = `${template.title}, ${template.description || 'детская иллюстрация, яркий мультяшный стиль'}`;
-      const genUrl = await generateCharacter(name, +age, stylePrompt);
-      setGeneratedUrl(genUrl);
 
-      setPages(templatePages.length > 0 ? templatePages : [genUrl]);
+      if (templatePages.length > 0) {
+        const resultPages: string[] = [];
+        for (let i = 0; i < templatePages.length; i++) {
+          setCurrentPage(i + 1);
+          const swapped = await faceSwap(photoUrl, templatePages[i].image_url);
+          resultPages.push(swapped);
+          if (i === 0) setGeneratedUrl(swapped);
+        }
+        setPages(resultPages);
+      } else {
+        const swapped = await faceSwap(photoUrl, template.cover_url || photoUrl);
+        setGeneratedUrl(swapped);
+        setPages([swapped]);
+      }
+
+      setCurrentPage(0);
       setStage('done');
       setStep('preview');
     } catch {
@@ -67,7 +80,7 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
 
   const reset = () => {
     setStep('form'); setStage('upload'); setName(''); setAge(''); setEmail('');
-    setPhoto(null); setPhotoPreview(''); setPages([]); setGeneratedUrl('');
+    setPhoto(null); setPhotoPreview(''); setPages([]); setGeneratedUrl(''); setCurrentPage(0);
     onClose();
   };
 
@@ -124,7 +137,7 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
             <div className="space-y-3 text-left max-w-xs mx-auto">
               {[
                 { key: 'upload', label: 'Загружаем фото', icon: '📤' },
-                { key: 'generate', label: 'Нейросеть рисует персонажа', icon: '🤖' },
+                { key: 'generate', label: currentPage > 0 ? `Вставляем лицо: стр. ${currentPage}` : 'Нейросеть вставляет лицо', icon: '🤖' },
                 { key: 'done', label: 'Собираем книгу', icon: '📚' },
               ].map((s) => {
                 const stageOrder = { upload: 0, generate: 1, done: 2 };
@@ -146,23 +159,18 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
 
         {step === 'preview' && (
           <div className="space-y-5">
-            {generatedUrl && (
-              <div className="bg-primary/5 rounded-2xl p-4 text-center">
-                <p className="text-xs text-muted-foreground mb-3 font-semibold uppercase tracking-wide">Персонаж, созданный AI для {name}</p>
-                <img src={generatedUrl} alt="Сгенерированный персонаж" className="w-48 h-48 object-cover rounded-2xl mx-auto shadow-lg" />
-                <p className="text-xs text-muted-foreground mt-2">В финальной версии лицо будет вставлено в каждую страницу книги</p>
-              </div>
-            )}
+            <div className="bg-primary/5 rounded-2xl p-4 text-center">
+              <p className="text-sm font-bold mb-1">🎉 Книга для {name} готова!</p>
+              <p className="text-xs text-muted-foreground">Нейросеть вставила лицо на {pages.length} {pages.length === 1 ? 'страницу' : 'страниц'}</p>
+            </div>
             {pages.length > 0 && (
-              <div>
-                <p className="text-sm font-semibold mb-3">Страницы шаблона книги:</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {pages.map((src, i) => (
-                    <div key={i} className="rounded-xl overflow-hidden border border-border">
-                      <img src={src} alt={`Страница ${i + 1}`} className="w-full aspect-square object-cover" />
-                    </div>
-                  ))}
-                </div>
+              <div className="grid grid-cols-2 gap-3">
+                {pages.map((src, i) => (
+                  <div key={i} className="rounded-xl overflow-hidden border border-border relative">
+                    <img src={src} alt={`Страница ${i + 1}`} className="w-full aspect-square object-cover" />
+                    <span className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-full">{i + 1}</span>
+                  </div>
+                ))}
               </div>
             )}
             <p className="text-xs text-muted-foreground text-center">Формат 20×20 см, выгрузка в JPEG после оплаты</p>

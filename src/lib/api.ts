@@ -5,11 +5,11 @@ export const API = {
   generate: 'https://functions.poehali.dev/e82e9202-9c82-418b-a294-9827d695fcad',
 };
 
-export async function generateCharacter(childName: string, childAge: number, stylePrompt: string): Promise<string> {
+export async function faceSwap(sourceFaceUrl: string, targetImageUrl: string): Promise<string> {
   const res = await fetch(API.generate, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ child_name: childName, child_age: childAge, style_prompt: stylePrompt }),
+    body: JSON.stringify({ source_face_url: sourceFaceUrl, target_image_url: targetImageUrl }),
   });
   const data = await res.json();
   if (!data.url) throw new Error(data.error || 'Generation failed');
