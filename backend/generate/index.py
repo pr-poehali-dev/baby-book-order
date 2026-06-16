@@ -5,91 +5,93 @@ import uuid
 import requests
 import boto3
 
-
-FAL_QUEUE_URL = 'https://queue.fal.run'
-# fal-ai/face-swap: swap_image_url = лицо-донор, base_image_url = целевое изображение
-FACE_SWAP_MODEL = 'fal-ai/face-swap'
+HF_SPACE_URL = 'https://felixrosberg-face-swap.hf.space'
+S3_BUCKET = 'files'
 
 
-def fal_auth():
-    return {'Authorization': f"Key {os.environ['FAL_API_KEY']}"}
+def hf_headers():
+    return {'Authorization': f"Bearer {os.environ['HUGGINGFACE_TOKEN']}"}
 
 
-def submit_job(swap_image_url: str, base_image_url: str) -> str:
-    resp = requests.post(
-        f"{FAL_QUEUE_URL}/{FACE_SWAP_MODEL}",
-        headers={**fal_auth(), 'Content-Type': 'application/json'},
-        json={
-            'swap_image_url': swap_image_url,
-            'base_image_url': base_image_url,
-        },
-        timeout=20,
+def upload_image_to_space(image_url: str) -> str:
+    """Скачивает изображение и загружает во временное хранилище Gradio Space."""
+    img_resp = requests.get(image_url, timeout=20)
+    img_resp.raise_for_status()
+
+    upload_resp = requests.post(
+        f'{HF_SPACE_URL}/upload',
+        headers=hf_headers(),
+        files={'files': ('image.jpg', img_resp.content, 'image/jpeg')},
+        timeout=30,
     )
-    if not resp.ok:
-        raise RuntimeError(f"FAL submit error {resp.status_code}: {resp.text[:300]}")
+    upload_resp.raise_for_status()
+    paths = upload_resp.json()
+    if not paths:
+        raise RuntimeError('Empty upload response from Space')
+    return paths[0]
+
+
+def run_face_swap(source_url: str, target_url: str) -> str:
+    """Запускает face-swap: source = лицо ребёнка, target = страница шаблона."""
+    source_path = upload_image_to_space(source_url)
+    target_path = upload_image_to_space(target_url)
+
+    payload = {
+        'data': [
+            {'path': target_path, 'meta': {'_type': 'gradio.FileData'}},
+            {'path': source_path, 'meta': {'_type': 'gradio.FileData'}},
+            0,    # anonymization strength
+            0,    # sharpen
+            False,  # show landmarks
+        ]
+    }
+
+    resp = requests.post(
+        f'{HF_SPACE_URL}/run/run_inference',
+        headers={**hf_headers(), 'Content-Type': 'application/json'},
+        json=payload,
+        timeout=60,
+    )
+    resp.raise_for_status()
     data = resp.json()
-    request_id = data.get('request_id')
-    if not request_id:
-        raise RuntimeError(f"No request_id in response: {data}")
-    return request_id
 
+    result = data.get('data', [{}])[0]
+    if isinstance(result, dict):
+        result_url = result.get('url') or result.get('path', '')
+    else:
+        result_url = str(result)
 
-def poll_result(request_id: str, max_wait: int = 110) -> dict:
-    deadline = time.time() + max_wait
-    while time.time() < deadline:
-        resp = requests.get(
-            f"{FAL_QUEUE_URL}/{FACE_SWAP_MODEL}/requests/{request_id}/status",
-            headers=fal_auth(),
-            timeout=10,
-        )
-        data = resp.json()
-        status = data.get('status')
-        if status == 'COMPLETED':
-            result_resp = requests.get(
-                f"{FAL_QUEUE_URL}/{FACE_SWAP_MODEL}/requests/{request_id}",
-                headers=fal_auth(),
-                timeout=15,
-            )
-            return result_resp.json()
-        if status in ('FAILED', 'ERROR'):
-            raise RuntimeError(f"FAL job failed: {data}")
-        time.sleep(4)
-    raise RuntimeError('FAL job timeout')
+    if not result_url:
+        raise RuntimeError(f'No result URL from Space: {data}')
 
+    if result_url.startswith('/'):
+        result_url = HF_SPACE_URL + result_url
 
-def extract_url(result: dict) -> str:
-    # fal-ai/face-swap возвращает {"image": {"url": "..."}}
-    if isinstance(result.get('image'), dict):
-        return result['image']['url']
-    # fallback: images list
-    images = result.get('images') or []
-    if images:
-        img = images[0]
-        return img['url'] if isinstance(img, dict) else img
-    raise RuntimeError(f"Cannot extract URL from result: {list(result.keys())}")
+    return result_url
 
 
 def save_to_s3(image_url: str) -> str:
     resp = requests.get(image_url, timeout=30)
     resp.raise_for_status()
-    key = f"generated/{uuid.uuid4().hex}.jpg"
+    key = f'generated/{uuid.uuid4().hex}.jpg'
     s3 = boto3.client(
         's3',
         endpoint_url='https://bucket.poehali.dev',
         aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
         aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
     )
-    s3.put_object(Bucket='files', Key=key, Body=resp.content, ContentType='image/jpeg')
+    s3.put_object(Bucket=S3_BUCKET, Key=key, Body=resp.content, ContentType='image/jpeg')
     return f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
 
 
 def handler(event: dict, context) -> dict:
-    """Face-swap через fal.ai: вставляет лицо ребёнка (source_face_url) в страницу шаблона (target_image_url). Сохраняет результат в S3 и возвращает CDN URL."""
+    """Face-swap через HuggingFace Space (felixrosberg/face-swap).
+    Принимает source_face_url (фото ребёнка) и target_image_url (страница шаблона).
+    Возвращает CDN URL готового изображения."""
     cors = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Max-Age': '86400',
     }
 
     if event.get('httpMethod') == 'OPTIONS':
@@ -107,13 +109,7 @@ def handler(event: dict, context) -> dict:
     if not source_face_url or not target_image_url:
         return {'statusCode': 400, 'headers': headers, 'body': json.dumps({'error': 'source_face_url and target_image_url required'})}
 
-    request_id = submit_job(
-        swap_image_url=source_face_url,
-        base_image_url=target_image_url,
-    )
-
-    result = poll_result(request_id, max_wait=110)
-    result_url = extract_url(result)
+    result_url = run_face_swap(source_face_url, target_image_url)
     cdn_url = save_to_s3(result_url)
 
     return {'statusCode': 200, 'headers': headers, 'body': json.dumps({'url': cdn_url})}
