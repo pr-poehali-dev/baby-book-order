@@ -6,107 +6,70 @@ import requests
 import boto3
 
 
-FAL_URL = 'https://fal.run'
 FAL_QUEUE_URL = 'https://queue.fal.run'
-FACE_SWAP_MODEL = 'half-moon-ai/ai-face-swap/faceswapimage'
+# fal-ai/face-swap: swap_image_url = лицо-донор, base_image_url = целевое изображение
+FACE_SWAP_MODEL = 'fal-ai/face-swap'
 
 
-def fal_headers():
-    return {
-        'Authorization': f"Key {os.environ['FAL_API_KEY']}",
-        'Content-Type': 'application/json',
-    }
+def fal_auth():
+    return {'Authorization': f"Key {os.environ['FAL_API_KEY']}"}
 
 
-def upload_image_to_fal(image_url: str) -> str:
-    """Загружает изображение по URL в хранилище fal.ai и возвращает fal-cdn URL."""
-    resp = requests.get(image_url, timeout=20)
-    resp.raise_for_status()
-    content_type = resp.headers.get('content-type', 'image/jpeg')
-    upload_resp = requests.post(
-        'https://rest.alpha.fal.ai/storage/upload/initiate',
-        headers={
-            'Authorization': f"Key {os.environ['FAL_API_KEY']}",
-            'Content-Type': 'application/json',
-        },
-        json={'content_type': content_type, 'file_name': f"{uuid.uuid4().hex}.jpg"},
-        timeout=15,
-    )
-    if upload_resp.status_code != 200:
-        return image_url
-
-    upload_data = upload_resp.json()
-    upload_url = upload_data.get('upload_url')
-    if not upload_url:
-        return image_url
-
-    put_resp = requests.put(
-        upload_url,
-        data=resp.content,
-        headers={'Content-Type': content_type},
-        timeout=30,
-    )
-    if put_resp.status_code not in (200, 204):
-        return image_url
-
-    return upload_data.get('file_url', image_url)
-
-
-def run_face_swap_sync(source_face_url: str, target_image_url: str) -> dict:
-    """Запускает face-swap синхронно через fal.run."""
+def submit_job(swap_image_url: str, base_image_url: str) -> str:
     resp = requests.post(
-        f"{FAL_URL}/{FACE_SWAP_MODEL}",
-        headers=fal_headers(),
-        json={
-            'source_face_url': source_face_url,
-            'target_image_url': target_image_url,
-        },
-        timeout=55,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def run_face_swap_queue(source_face_url: str, target_image_url: str) -> str | None:
-    """Запускает face-swap через очередь и ждёт результата."""
-    submit = requests.post(
         f"{FAL_QUEUE_URL}/{FACE_SWAP_MODEL}",
-        headers=fal_headers(),
+        headers={**fal_auth(), 'Content-Type': 'application/json'},
         json={
-            'source_face_url': source_face_url,
-            'target_image_url': target_image_url,
+            'swap_image_url': swap_image_url,
+            'base_image_url': base_image_url,
         },
         timeout=20,
     )
-    submit.raise_for_status()
-    data = submit.json()
+    if not resp.ok:
+        raise RuntimeError(f"FAL submit error {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
     request_id = data.get('request_id')
     if not request_id:
-        return None
+        raise RuntimeError(f"No request_id in response: {data}")
+    return request_id
 
-    deadline = time.time() + 55
+
+def poll_result(request_id: str, max_wait: int = 110) -> dict:
+    deadline = time.time() + max_wait
     while time.time() < deadline:
-        status_resp = requests.get(
+        resp = requests.get(
             f"{FAL_QUEUE_URL}/{FACE_SWAP_MODEL}/requests/{request_id}/status",
-            headers={'Authorization': f"Key {os.environ['FAL_API_KEY']}"},
+            headers=fal_auth(),
             timeout=10,
         )
-        status_data = status_resp.json()
-        if status_data.get('status') == 'COMPLETED':
+        data = resp.json()
+        status = data.get('status')
+        if status == 'COMPLETED':
             result_resp = requests.get(
                 f"{FAL_QUEUE_URL}/{FACE_SWAP_MODEL}/requests/{request_id}",
-                headers={'Authorization': f"Key {os.environ['FAL_API_KEY']}"},
-                timeout=10,
+                headers=fal_auth(),
+                timeout=15,
             )
             return result_resp.json()
-        if status_data.get('status') == 'FAILED':
-            return None
-        time.sleep(3)
-    return None
+        if status in ('FAILED', 'ERROR'):
+            raise RuntimeError(f"FAL job failed: {data}")
+        time.sleep(4)
+    raise RuntimeError('FAL job timeout')
 
 
-def upload_result_to_s3(image_url: str) -> str:
-    """Скачивает готовое изображение и сохраняет в наш S3."""
+def extract_url(result: dict) -> str:
+    # fal-ai/face-swap возвращает {"image": {"url": "..."}}
+    if isinstance(result.get('image'), dict):
+        return result['image']['url']
+    # fallback: images list
+    images = result.get('images') or []
+    if images:
+        img = images[0]
+        return img['url'] if isinstance(img, dict) else img
+    raise RuntimeError(f"Cannot extract URL from result: {list(result.keys())}")
+
+
+def save_to_s3(image_url: str) -> str:
     resp = requests.get(image_url, timeout=30)
     resp.raise_for_status()
     key = f"generated/{uuid.uuid4().hex}.jpg"
@@ -120,26 +83,8 @@ def upload_result_to_s3(image_url: str) -> str:
     return f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
 
 
-def extract_image_url(result: dict) -> str | None:
-    """Извлекает URL результата из разных форматов ответа fal.ai."""
-    if not result:
-        return None
-    if isinstance(result.get('image'), dict):
-        return result['image'].get('url')
-    if isinstance(result.get('images'), list) and result['images']:
-        img = result['images'][0]
-        return img.get('url') if isinstance(img, dict) else img
-    if result.get('output'):
-        out = result['output']
-        if isinstance(out, str):
-            return out
-        if isinstance(out, list) and out:
-            return out[0]
-    return None
-
-
 def handler(event: dict, context) -> dict:
-    """Face-swap через fal.ai: вставляет лицо ребёнка (source_face_url) в страницу шаблона (target_image_url). Возвращает URL готового изображения в нашем S3."""
+    """Face-swap через fal.ai: вставляет лицо ребёнка (source_face_url) в страницу шаблона (target_image_url). Сохраняет результат в S3 и возвращает CDN URL."""
     cors = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -156,23 +101,19 @@ def handler(event: dict, context) -> dict:
         return {'statusCode': 405, 'headers': headers, 'body': json.dumps({'error': 'Method not allowed'})}
 
     body = json.loads(event.get('body') or '{}')
-    source_face_url = body.get('source_face_url', '')
-    target_image_url = body.get('target_image_url', '')
+    source_face_url = body.get('source_face_url', '').strip()
+    target_image_url = body.get('target_image_url', '').strip()
 
     if not source_face_url or not target_image_url:
-        return {'statusCode': 400, 'headers': headers, 'body': json.dumps({'error': 'source_face_url and target_image_url are required'})}
+        return {'statusCode': 400, 'headers': headers, 'body': json.dumps({'error': 'source_face_url and target_image_url required'})}
 
-    result = None
-    try:
-        data = run_face_swap_sync(source_face_url, target_image_url)
-        result = data
-    except Exception:
-        result = run_face_swap_queue(source_face_url, target_image_url)
+    request_id = submit_job(
+        swap_image_url=source_face_url,
+        base_image_url=target_image_url,
+    )
 
-    result_url = extract_image_url(result) if result else None
+    result = poll_result(request_id, max_wait=110)
+    result_url = extract_url(result)
+    cdn_url = save_to_s3(result_url)
 
-    if not result_url:
-        return {'statusCode': 504, 'headers': headers, 'body': json.dumps({'error': 'Generation failed or timeout', 'raw': str(result)})}
-
-    cdn_url = upload_result_to_s3(result_url)
     return {'statusCode': 200, 'headers': headers, 'body': json.dumps({'url': cdn_url})}
