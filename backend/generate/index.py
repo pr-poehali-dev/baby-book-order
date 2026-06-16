@@ -6,12 +6,35 @@ import traceback
 import requests
 import boto3
 
-HF_SPACE_URL = 'https://felixrosberg-face-swap.hf.space'
+HF_SPACE_URL = 'https://tonyassi-face-swap.hf.space'
+
+
+def upload_image(image_url: str, filename: str, auth: dict) -> str:
+    """Скачивает изображение и загружает в Space, возвращает путь."""
+    raw = requests.get(image_url, timeout=20)
+    raw.raise_for_status()
+    content = raw.content
+    if len(content) > 500_000:
+        from PIL import Image
+        img = Image.open(io.BytesIO(content)).convert('RGB')
+        if img.width > 800 or img.height > 800:
+            img.thumbnail((800, 800), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=75)
+        content = buf.getvalue()
+    resp = requests.post(
+        f'{HF_SPACE_URL}/upload',
+        headers=auth,
+        files={'files': (filename, content, 'image/jpeg')},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()[0]
 
 
 def handler(event: dict, context) -> dict:
-    """Face-swap через HuggingFace Space felixrosberg/face-swap.
-    Передаём URL изображений напрямую без предзагрузки."""
+    """Face-swap через HuggingFace Space tonyassi/face-swap (insightface).
+    source_face_url = фото ребёнка, target_image_url = страница шаблона."""
 
     cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}
 
@@ -22,7 +45,7 @@ def handler(event: dict, context) -> dict:
 
     def err(msg, code=500):
         print(f'[ERR] {msg}', flush=True)
-        return {'statusCode': code, 'headers': h, 'body': json.dumps({'error': str(msg)[:300]})}
+        return {'statusCode': code, 'headers': h, 'body': json.dumps({'error': str(msg)[:400]})}
 
     print('[GEN] start', flush=True)
 
@@ -39,16 +62,28 @@ def handler(event: dict, context) -> dict:
 
     auth = {'Authorization': f'Bearer {token}'}
 
-    # Передаём URL напрямую — Space сам скачает изображения
     try:
-        print(f'[GEN] calling inference with URLs...', flush=True)
+        print('[GEN] uploading source...', flush=True)
+        src_path = upload_image(src_url, 'source.jpg', auth)
+        print(f'[GEN] src: {src_path}', flush=True)
+    except Exception as e:
+        return err(f'src upload: {e}')
+
+    try:
+        print('[GEN] uploading target...', flush=True)
+        tgt_path = upload_image(tgt_url, 'target.jpg', auth)
+        print(f'[GEN] tgt: {tgt_path}', flush=True)
+    except Exception as e:
+        return err(f'tgt upload: {e}')
+
+    try:
+        print('[GEN] calling swap_faces...', flush=True)
         payload = {
             'data': [
-                {'url': tgt_url, 'meta': {'_type': 'gradio.FileData'}},  # target
-                {'url': src_url, 'meta': {'_type': 'gradio.FileData'}},  # source
-                0, 0, False,
+                {'path': src_path, 'meta': {'_type': 'gradio.FileData'}},
+                {'path': tgt_path, 'meta': {'_type': 'gradio.FileData'}},
             ],
-            'api_name': '/run_inference',
+            'api_name': '/swap_faces',
         }
         resp = requests.post(
             f'{HF_SPACE_URL}/run/predict',
@@ -56,7 +91,7 @@ def handler(event: dict, context) -> dict:
             json=payload,
             timeout=115,
         )
-        print(f'[GEN] response {resp.status_code}: {resp.text[:400]}', flush=True)
+        print(f'[GEN] {resp.status_code}: {resp.text[:400]}', flush=True)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
@@ -70,12 +105,12 @@ def handler(event: dict, context) -> dict:
         else:
             ru = str(item or '')
         if not ru:
-            return err(f'no url in result: {data}')
+            return err(f'no url: {data}')
         if ru.startswith('/'):
             ru = HF_SPACE_URL + ru
         if not ru.startswith('http'):
             ru = f'{HF_SPACE_URL}/file={ru}'
-        print(f'[GEN] result url: {ru}', flush=True)
+        print(f'[GEN] result: {ru}', flush=True)
     except Exception as e:
         return err(f'parse: {e}')
 
@@ -87,7 +122,7 @@ def handler(event: dict, context) -> dict:
                           aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
         s3.put_object(Bucket='files', Key=key, Body=img, ContentType='image/jpeg')
         cdn = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
-        print(f'[GEN] saved: {cdn}', flush=True)
+        print(f'[GEN] done: {cdn}', flush=True)
     except Exception as e:
         return err(f's3: {e}')
 
