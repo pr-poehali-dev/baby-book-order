@@ -79,8 +79,9 @@ def handler(event: dict, context) -> dict:
             {'path': sp, 'meta': {'_type': 'gradio.FileData'}},
             0, 0, False,
         ]}
+        payload['api_name'] = '/run_inference'
         resp = requests.post(
-            f'{HF_SPACE_URL}/run_inference',
+            f'{HF_SPACE_URL}/run/predict',
             headers={**auth, 'Content-Type': 'application/json'},
             json=payload,
             timeout=115,
