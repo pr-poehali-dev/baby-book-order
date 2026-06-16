@@ -88,89 +88,44 @@ def handler(event: dict, context) -> dict:
     except Exception as e:
         return err(f'Target failed: {e}')
 
-    session_hash = uuid.uuid4().hex[:8]
-
-    # Отправляем в очередь через /queue/join
+    # Прямой вызов /run/run_inference (таймаут 120 сек — достаточно)
     try:
         payload = {
             'data': [
                 {'path': target_path, 'meta': {'_type': 'gradio.FileData'}},
                 {'path': source_path, 'meta': {'_type': 'gradio.FileData'}},
                 0, 0, False,
-            ],
-            'fn_index': 0,
-            'session_hash': session_hash,
+            ]
         }
-        join_resp = requests.post(
-            f'{HF_SPACE_URL}/queue/join',
+        print('[GENERATE] calling /run/run_inference...', flush=True)
+        resp = requests.post(
+            f'{HF_SPACE_URL}/run/run_inference',
             headers={**auth, 'Content-Type': 'application/json'},
             json=payload,
-            timeout=15,
+            timeout=115,
         )
-        print(f'[GENERATE] queue/join: {join_resp.status_code} {join_resp.text[:100]}', flush=True)
-        join_resp.raise_for_status()
+        print(f'[GENERATE] inference: {resp.status_code} {resp.text[:400]}', flush=True)
+        resp.raise_for_status()
+        data = resp.json()
     except Exception as e:
-        return err(f'Queue join failed: {e}')
+        return err(f'Inference failed: {e}\n{traceback.format_exc()}')
 
-    # Читаем SSE-поток /queue/data
     try:
-        result_url = None
-        print('[GENERATE] polling queue/data...', flush=True)
-        with requests.get(
-            f'{HF_SPACE_URL}/queue/data',
-            headers=auth,
-            params={'session_hash': session_hash},
-            stream=True,
-            timeout=110,
-        ) as stream:
-            deadline = time.time() + 105
-            for line in stream.iter_lines():
-                if time.time() > deadline:
-                    break
-                if not line:
-                    continue
-                text = line.decode('utf-8') if isinstance(line, bytes) else line
-                if not text.startswith('data:'):
-                    continue
-                try:
-                    msg = json.loads(text[5:].strip())
-                except Exception:
-                    continue
-                msg_type = msg.get('msg')
-                print(f'[GENERATE] msg: {msg_type} full: {json.dumps(msg)[:500]}', flush=True)
-                if msg_type == 'process_completed':
-                    # пробуем все возможные структуры ответа
-                    output = msg.get('output') or {}
-                    data_list = output.get('data') or []
-                    # иногда данные прямо в msg
-                    if not data_list:
-                        data_list = msg.get('data') or []
-                    if data_list:
-                        item = data_list[0]
-                        if isinstance(item, dict):
-                            result_url = (
-                                item.get('url') or
-                                item.get('path') or
-                                item.get('value') or ''
-                            )
-                            # путь может быть вложен в 'image'
-                            if not result_url and isinstance(item.get('image'), dict):
-                                result_url = item['image'].get('url') or item['image'].get('path', '')
-                        else:
-                            result_url = str(item or '')
-                        if result_url and result_url.startswith('/'):
-                            result_url = HF_SPACE_URL + result_url
-                        if result_url and not result_url.startswith('http'):
-                            result_url = f'{HF_SPACE_URL}/file={result_url}'
-                    break
-                if msg_type == 'process_errored':
-                    return err(f'Space processing error: {msg}')
-
+        item = (data.get('data') or [None])[0]
+        print(f'[GENERATE] result item: {str(item)[:300]}', flush=True)
+        if isinstance(item, dict):
+            result_url = item.get('url') or item.get('path', '')
+        else:
+            result_url = str(item or '')
         if not result_url:
-            return err('No result URL received from Space')
-        print(f'[GENERATE] result ready', flush=True)
+            return err(f'Empty result: {data}')
+        if result_url.startswith('/'):
+            result_url = HF_SPACE_URL + result_url
+        if not result_url.startswith('http'):
+            result_url = f'{HF_SPACE_URL}/file={result_url}'
+        print(f'[GENERATE] result_url: {result_url}', flush=True)
     except Exception as e:
-        return err(f'Queue polling failed: {e}\n{traceback.format_exc()}')
+        return err(f'Parse failed: {e}')
 
     # Сохраняем в S3
     try:
