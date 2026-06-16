@@ -1,18 +1,16 @@
 import io
 import json
 import os
-import time
 import uuid
 import traceback
-
 import requests
 import boto3
-from PIL import Image
 
 HF_SPACE_URL = 'https://felixrosberg-face-swap.hf.space'
 
 
 def compress(raw: bytes, max_dim: int = 900, max_kb: int = 350) -> bytes:
+    from PIL import Image
     img = Image.open(io.BytesIO(raw)).convert('RGB')
     if img.width > max_dim or img.height > max_dim:
         img.thumbnail((max_dim, max_dim), Image.LANCZOS)
@@ -25,122 +23,100 @@ def compress(raw: bytes, max_dim: int = 900, max_kb: int = 350) -> bytes:
     return buf.getvalue()
 
 
-def upload_to_space(data: bytes, name: str, auth: dict) -> str:
-    resp = requests.post(
-        f'{HF_SPACE_URL}/upload',
-        headers=auth,
-        files={'files': (name, data, 'image/jpeg')},
-        timeout=30,
-    )
-    print(f'[GENERATE] upload {name}: {resp.status_code}', flush=True)
-    resp.raise_for_status()
-    return resp.json()[0]
-
-
 def handler(event: dict, context) -> dict:
-    """Face-swap через HuggingFace Space felixrosberg/face-swap (async queue).
-    source_face_url = фото ребёнка, target_image_url = страница шаблона."""
+    """Face-swap через HuggingFace Space felixrosberg/face-swap."""
 
-    cors = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-    }
+    cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}
 
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': cors, 'body': ''}
 
-    headers = {**cors, 'Content-Type': 'application/json'}
+    h = {**cors, 'Content-Type': 'application/json'}
 
-    def err(msg, status=500):
-        print(f'[GENERATE ERROR] {msg}', flush=True)
-        return {'statusCode': status, 'headers': headers, 'body': json.dumps({'error': msg})}
+    def err(msg, code=500):
+        print(f'[ERR] {msg}', flush=True)
+        return {'statusCode': code, 'headers': h, 'body': json.dumps({'error': str(msg)[:300]})}
 
-    try:
-        body = json.loads(event.get('body') or '{}')
-    except Exception as e:
-        return err(f'Bad JSON: {e}', 400)
+    print('[GEN] handler start', flush=True)
 
-    source_face_url = (body.get('source_face_url') or '').strip()
-    target_image_url = (body.get('target_image_url') or '').strip()
-    print(f'[GENERATE] start', flush=True)
+    body = json.loads(event.get('body') or '{}')
+    src_url = (body.get('source_face_url') or '').strip()
+    tgt_url = (body.get('target_image_url') or '').strip()
 
-    if not source_face_url or not target_image_url:
+    if not src_url or not tgt_url:
         return err('source_face_url and target_image_url required', 400)
 
-    hf_token = os.environ.get('HUGGINGFACE_TOKEN', '')
-    if not hf_token:
+    token = os.environ.get('HUGGINGFACE_TOKEN', '')
+    if not token:
         return err('HUGGINGFACE_TOKEN missing')
-    auth = {'Authorization': f'Bearer {hf_token}'}
 
-    # Сжимаем и загружаем оба изображения
+    auth = {'Authorization': f'Bearer {token}'}
+
     try:
-        src_bytes = compress(requests.get(source_face_url, timeout=15).content, max_dim=600, max_kb=250)
-        source_path = upload_to_space(src_bytes, 'source.jpg', auth)
-        print(f'[GENERATE] source uploaded', flush=True)
+        print('[GEN] compress source', flush=True)
+        src = compress(requests.get(src_url, timeout=15).content, 600, 250)
+        r = requests.post(f'{HF_SPACE_URL}/upload', headers=auth, files={'files': ('s.jpg', src, 'image/jpeg')}, timeout=30)
+        r.raise_for_status()
+        sp = r.json()[0]
+        print(f'[GEN] src path: {sp}', flush=True)
     except Exception as e:
-        return err(f'Source failed: {e}')
+        return err(f'src upload: {e}')
 
     try:
-        tgt_bytes = compress(requests.get(target_image_url, timeout=15).content, max_dim=900, max_kb=350)
-        target_path = upload_to_space(tgt_bytes, 'target.jpg', auth)
-        print(f'[GENERATE] target uploaded', flush=True)
+        print('[GEN] compress target', flush=True)
+        tgt = compress(requests.get(tgt_url, timeout=15).content, 900, 350)
+        r2 = requests.post(f'{HF_SPACE_URL}/upload', headers=auth, files={'files': ('t.jpg', tgt, 'image/jpeg')}, timeout=30)
+        r2.raise_for_status()
+        tp = r2.json()[0]
+        print(f'[GEN] tgt path: {tp}', flush=True)
     except Exception as e:
-        return err(f'Target failed: {e}')
+        return err(f'tgt upload: {e}')
 
-    # Прямой вызов /run/run_inference (таймаут 120 сек — достаточно)
     try:
-        payload = {
-            'data': [
-                {'path': target_path, 'meta': {'_type': 'gradio.FileData'}},
-                {'path': source_path, 'meta': {'_type': 'gradio.FileData'}},
-                0, 0, False,
-            ]
-        }
-        print('[GENERATE] calling /run/run_inference...', flush=True)
+        print('[GEN] inference', flush=True)
+        payload = {'data': [
+            {'path': tp, 'meta': {'_type': 'gradio.FileData'}},
+            {'path': sp, 'meta': {'_type': 'gradio.FileData'}},
+            0, 0, False,
+        ]}
         resp = requests.post(
             f'{HF_SPACE_URL}/run/run_inference',
             headers={**auth, 'Content-Type': 'application/json'},
             json=payload,
             timeout=115,
         )
-        print(f'[GENERATE] inference: {resp.status_code} {resp.text[:400]}', flush=True)
+        print(f'[GEN] inference {resp.status_code}: {resp.text[:300]}', flush=True)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        return err(f'Inference failed: {e}\n{traceback.format_exc()}')
+        return err(f'inference: {e}\n{traceback.format_exc()[:500]}')
 
     try:
         item = (data.get('data') or [None])[0]
-        print(f'[GENERATE] result item: {str(item)[:300]}', flush=True)
+        print(f'[GEN] item: {str(item)[:200]}', flush=True)
         if isinstance(item, dict):
-            result_url = item.get('url') or item.get('path', '')
+            ru = item.get('url') or item.get('path', '')
         else:
-            result_url = str(item or '')
-        if not result_url:
-            return err(f'Empty result: {data}')
-        if result_url.startswith('/'):
-            result_url = HF_SPACE_URL + result_url
-        if not result_url.startswith('http'):
-            result_url = f'{HF_SPACE_URL}/file={result_url}'
-        print(f'[GENERATE] result_url: {result_url}', flush=True)
+            ru = str(item or '')
+        if not ru:
+            return err(f'no url: {data}')
+        if ru.startswith('/'):
+            ru = HF_SPACE_URL + ru
+        if not ru.startswith('http'):
+            ru = f'{HF_SPACE_URL}/file={ru}'
     except Exception as e:
-        return err(f'Parse failed: {e}')
+        return err(f'parse: {e}')
 
-    # Сохраняем в S3
     try:
-        img_data = requests.get(result_url, timeout=20).content
+        img = requests.get(ru, timeout=20).content
         key = f'generated/{uuid.uuid4().hex}.jpg'
-        s3 = boto3.client(
-            's3',
-            endpoint_url='https://bucket.poehali.dev',
-            aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-            aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
-        )
-        s3.put_object(Bucket='files', Key=key, Body=img_data, ContentType='image/jpeg')
-        cdn_url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
-        print(f'[GENERATE] done: {cdn_url}', flush=True)
+        s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
+                          aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                          aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+        s3.put_object(Bucket='files', Key=key, Body=img, ContentType='image/jpeg')
+        cdn = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+        print(f'[GEN] done {cdn}', flush=True)
     except Exception as e:
-        return err(f'S3 failed: {e}')
+        return err(f's3: {e}')
 
-    return {'statusCode': 200, 'headers': headers, 'body': json.dumps({'url': cdn_url})}
+    return {'statusCode': 200, 'headers': h, 'body': json.dumps({'url': cdn})}
