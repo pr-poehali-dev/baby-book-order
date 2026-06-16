@@ -109,7 +109,12 @@ def handler(event: dict, context) -> dict:
     if not source_face_url or not target_image_url:
         return {'statusCode': 400, 'headers': headers, 'body': json.dumps({'error': 'source_face_url and target_image_url required'})}
 
-    result_url = run_face_swap(source_face_url, target_image_url)
-    cdn_url = save_to_s3(result_url)
-
-    return {'statusCode': 200, 'headers': headers, 'body': json.dumps({'url': cdn_url})}
+    try:
+        result_url = run_face_swap(source_face_url, target_image_url)
+        cdn_url = save_to_s3(result_url)
+        return {'statusCode': 200, 'headers': headers, 'body': json.dumps({'url': cdn_url})}
+    except Exception as e:
+        import traceback
+        print(f'[ERROR] {type(e).__name__}: {e}')
+        print(traceback.format_exc())
+        return {'statusCode': 500, 'headers': headers, 'body': json.dumps({'error': str(e)})}
