@@ -9,22 +9,9 @@ import boto3
 HF_SPACE_URL = 'https://felixrosberg-face-swap.hf.space'
 
 
-def compress(raw: bytes, max_dim: int = 900, max_kb: int = 350) -> bytes:
-    from PIL import Image
-    img = Image.open(io.BytesIO(raw)).convert('RGB')
-    if img.width > max_dim or img.height > max_dim:
-        img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-    buf = io.BytesIO()
-    for q in (82, 70, 55, 40):
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=q)
-        if buf.tell() <= max_kb * 1024:
-            break
-    return buf.getvalue()
-
-
 def handler(event: dict, context) -> dict:
-    """Face-swap через HuggingFace Space felixrosberg/face-swap."""
+    """Face-swap через HuggingFace Space felixrosberg/face-swap.
+    Передаём URL изображений напрямую без предзагрузки."""
 
     cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}
 
@@ -37,7 +24,7 @@ def handler(event: dict, context) -> dict:
         print(f'[ERR] {msg}', flush=True)
         return {'statusCode': code, 'headers': h, 'body': json.dumps({'error': str(msg)[:300]})}
 
-    print('[GEN] handler start', flush=True)
+    print('[GEN] start', flush=True)
 
     body = json.loads(event.get('body') or '{}')
     src_url = (body.get('source_face_url') or '').strip()
@@ -52,41 +39,24 @@ def handler(event: dict, context) -> dict:
 
     auth = {'Authorization': f'Bearer {token}'}
 
+    # Передаём URL напрямую — Space сам скачает изображения
     try:
-        print('[GEN] compress source', flush=True)
-        src = compress(requests.get(src_url, timeout=15).content, 600, 250)
-        r = requests.post(f'{HF_SPACE_URL}/upload', headers=auth, files={'files': ('s.jpg', src, 'image/jpeg')}, timeout=30)
-        r.raise_for_status()
-        sp = r.json()[0]
-        print(f'[GEN] src path: {sp}', flush=True)
-    except Exception as e:
-        return err(f'src upload: {e}')
-
-    try:
-        print('[GEN] compress target', flush=True)
-        tgt = compress(requests.get(tgt_url, timeout=15).content, 900, 350)
-        r2 = requests.post(f'{HF_SPACE_URL}/upload', headers=auth, files={'files': ('t.jpg', tgt, 'image/jpeg')}, timeout=30)
-        r2.raise_for_status()
-        tp = r2.json()[0]
-        print(f'[GEN] tgt path: {tp}', flush=True)
-    except Exception as e:
-        return err(f'tgt upload: {e}')
-
-    try:
-        print('[GEN] inference', flush=True)
-        payload = {'data': [
-            {'path': tp, 'meta': {'_type': 'gradio.FileData'}},
-            {'path': sp, 'meta': {'_type': 'gradio.FileData'}},
-            0, 0, False,
-        ]}
-        payload['api_name'] = '/run_inference'
+        print(f'[GEN] calling inference with URLs...', flush=True)
+        payload = {
+            'data': [
+                {'url': tgt_url, 'meta': {'_type': 'gradio.FileData'}},  # target
+                {'url': src_url, 'meta': {'_type': 'gradio.FileData'}},  # source
+                0, 0, False,
+            ],
+            'api_name': '/run_inference',
+        }
         resp = requests.post(
             f'{HF_SPACE_URL}/run/predict',
             headers={**auth, 'Content-Type': 'application/json'},
             json=payload,
             timeout=115,
         )
-        print(f'[GEN] inference {resp.status_code}: {resp.text[:300]}', flush=True)
+        print(f'[GEN] response {resp.status_code}: {resp.text[:400]}', flush=True)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
@@ -94,29 +64,30 @@ def handler(event: dict, context) -> dict:
 
     try:
         item = (data.get('data') or [None])[0]
-        print(f'[GEN] item: {str(item)[:200]}', flush=True)
+        print(f'[GEN] item: {str(item)[:300]}', flush=True)
         if isinstance(item, dict):
             ru = item.get('url') or item.get('path', '')
         else:
             ru = str(item or '')
         if not ru:
-            return err(f'no url: {data}')
+            return err(f'no url in result: {data}')
         if ru.startswith('/'):
             ru = HF_SPACE_URL + ru
         if not ru.startswith('http'):
             ru = f'{HF_SPACE_URL}/file={ru}'
+        print(f'[GEN] result url: {ru}', flush=True)
     except Exception as e:
         return err(f'parse: {e}')
 
     try:
-        img = requests.get(ru, timeout=20).content
+        img = requests.get(ru, headers=auth, timeout=20).content
         key = f'generated/{uuid.uuid4().hex}.jpg'
         s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
                           aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
                           aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
         s3.put_object(Bucket='files', Key=key, Body=img, ContentType='image/jpeg')
         cdn = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
-        print(f'[GEN] done {cdn}', flush=True)
+        print(f'[GEN] saved: {cdn}', flush=True)
     except Exception as e:
         return err(f's3: {e}')
 
