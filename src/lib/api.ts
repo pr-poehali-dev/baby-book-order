@@ -11,9 +11,11 @@ export async function faceSwap(sourceFaceUrl: string, targetImageUrl: string): P
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source_face_url: sourceFaceUrl, target_image_url: targetImageUrl }),
   });
-  const data = await res.json();
-  if (!data.url) throw new Error(data.error || 'Generation failed');
-  return data.url as string;
+  const text = await res.text();
+  let data: Record<string, string> = {};
+  try { data = JSON.parse(text); } catch { throw new Error(`Server error: ${text.slice(0, 100)}`); }
+  if (!res.ok || !data.url) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.url;
 }
 
 export interface TemplatePage {

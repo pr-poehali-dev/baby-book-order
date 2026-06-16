@@ -72,8 +72,9 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
       setCurrentPage(0);
       setStage('done');
       setStep('preview');
-    } catch {
-      toast.error('Что-то пошло не так, попробуйте ещё раз');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Ошибка: ${msg}`);
       setStep('form');
     }
   };
