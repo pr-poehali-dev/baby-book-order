@@ -2,7 +2,19 @@ export const API = {
   upload: 'https://functions.poehali.dev/1af676dc-f92d-4a52-b85c-6c1f09d7c787',
   orders: 'https://functions.poehali.dev/23c3de0f-8e9f-4727-ab16-8e0abe2b793b',
   templates: 'https://functions.poehali.dev/78819c1d-e507-4a37-8c83-63d58af77ccd',
+  generate: 'https://functions.poehali.dev/e82e9202-9c82-418b-a294-9827d695fcad',
 };
+
+export async function generateCharacter(childName: string, childAge: number, stylePrompt: string): Promise<string> {
+  const res = await fetch(API.generate, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ child_name: childName, child_age: childAge, style_prompt: stylePrompt }),
+  });
+  const data = await res.json();
+  if (!data.url) throw new Error(data.error || 'Generation failed');
+  return data.url as string;
+}
 
 export interface TemplatePage {
   id: number;

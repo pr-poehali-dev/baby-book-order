@@ -5,18 +5,21 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
-import { Template, uploadFile, createOrder, fetchTemplate } from '@/lib/api';
+import { Template, uploadFile, createOrder, fetchTemplate, generateCharacter } from '@/lib/api';
 
 type Step = 'form' | 'processing' | 'preview';
+type ProcessStage = 'upload' | 'generate' | 'done';
 
 const OrderDialog = ({ template, open, onClose }: { template: Template | null; open: boolean; onClose: () => void }) => {
   const [step, setStep] = useState<Step>('form');
+  const [stage, setStage] = useState<ProcessStage>('upload');
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
   const [email, setEmail] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState('');
   const [pages, setPages] = useState<string[]>([]);
+  const [generatedUrl, setGeneratedUrl] = useState('');
 
   if (!template) return null;
 
@@ -33,17 +36,28 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
       return;
     }
     setStep('processing');
+    setStage('upload');
     try {
       const photoUrl = await uploadFile(photo, 'children');
-      const res = await createOrder({
+
+      await createOrder({
         template_id: template.id,
         child_name: name,
         child_age: +age,
         child_photo_url: photoUrl,
         customer_email: email,
       });
+
       const full = await fetchTemplate(template.id);
-      setPages(res.generation?.pages || full.pages?.map((p) => p.image_url) || []);
+      const templatePages = full.pages?.map((p) => p.image_url) || [];
+
+      setStage('generate');
+      const stylePrompt = `${template.title}, ${template.description || 'детская иллюстрация, яркий мультяшный стиль'}`;
+      const genUrl = await generateCharacter(name, +age, stylePrompt);
+      setGeneratedUrl(genUrl);
+
+      setPages(templatePages.length > 0 ? templatePages : [genUrl]);
+      setStage('done');
       setStep('preview');
     } catch {
       toast.error('Что-то пошло не так, попробуйте ещё раз');
@@ -52,8 +66,8 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
   };
 
   const reset = () => {
-    setStep('form'); setName(''); setAge(''); setEmail('');
-    setPhoto(null); setPhotoPreview(''); setPages([]);
+    setStep('form'); setStage('upload'); setName(''); setAge(''); setEmail('');
+    setPhoto(null); setPhotoPreview(''); setPages([]); setGeneratedUrl('');
     onClose();
   };
 
@@ -101,25 +115,57 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
         )}
 
         {step === 'processing' && (
-          <div className="py-16 text-center">
-            <div className="animate-wobble text-6xl mb-4">🪄</div>
-            <p className="font-display font-bold text-xl">Создаём вашу книгу...</p>
-            <p className="text-muted-foreground text-sm mt-2">Вставляем {name} в волшебную историю</p>
+          <div className="py-12 text-center space-y-6">
+            <div className="animate-wobble text-6xl">🪄</div>
+            <div>
+              <p className="font-display font-bold text-xl mb-1">Создаём книгу для {name}...</p>
+              <p className="text-muted-foreground text-sm">Это займёт около минуты</p>
+            </div>
+            <div className="space-y-3 text-left max-w-xs mx-auto">
+              {[
+                { key: 'upload', label: 'Загружаем фото', icon: '📤' },
+                { key: 'generate', label: 'Нейросеть рисует персонажа', icon: '🤖' },
+                { key: 'done', label: 'Собираем книгу', icon: '📚' },
+              ].map((s) => {
+                const stageOrder = { upload: 0, generate: 1, done: 2 };
+                const currentOrder = stageOrder[stage];
+                const itemOrder = stageOrder[s.key as ProcessStage];
+                const isDone = itemOrder < currentOrder;
+                const isActive = itemOrder === currentOrder;
+                return (
+                  <div key={s.key} className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${isActive ? 'bg-primary/10 font-semibold' : isDone ? 'opacity-50' : 'opacity-30'}`}>
+                    <span className="text-xl">{isDone ? '✅' : s.icon}</span>
+                    <span className="text-sm">{s.label}</span>
+                    {isActive && <span className="ml-auto animate-pulse text-primary">●</span>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
         {step === 'preview' && (
-          <div className="space-y-4">
-            <p className="text-muted-foreground text-sm">
-              Так выглядит ваша книга 20×20 см. После оплаты пришлём финальные страницы в JPEG.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {pages.map((src, i) => (
-                <div key={i} className="rounded-xl overflow-hidden border border-border">
-                  <img src={src} alt={`Страница ${i + 1}`} className="w-full aspect-square object-cover" />
+          <div className="space-y-5">
+            {generatedUrl && (
+              <div className="bg-primary/5 rounded-2xl p-4 text-center">
+                <p className="text-xs text-muted-foreground mb-3 font-semibold uppercase tracking-wide">Персонаж, созданный AI для {name}</p>
+                <img src={generatedUrl} alt="Сгенерированный персонаж" className="w-48 h-48 object-cover rounded-2xl mx-auto shadow-lg" />
+                <p className="text-xs text-muted-foreground mt-2">В финальной версии лицо будет вставлено в каждую страницу книги</p>
+              </div>
+            )}
+            {pages.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold mb-3">Страницы шаблона книги:</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {pages.map((src, i) => (
+                    <div key={i} className="rounded-xl overflow-hidden border border-border">
+                      <img src={src} alt={`Страница ${i + 1}`} className="w-full aspect-square object-cover" />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground text-center">Формат 20×20 см, выгрузка в JPEG после оплаты</p>
             <Button onClick={reset} size="lg" className="w-full rounded-full font-bold">
               <Icon name="ShoppingCart" size={18} /> Оформить заказ
             </Button>

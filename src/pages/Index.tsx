@@ -4,8 +4,10 @@ import Icon from '@/components/ui/icon';
 import OrderDialog from '@/components/OrderDialog';
 import { Template, fetchTemplates } from '@/lib/api';
 
+const HERO_IMAGE = 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/bucket/covers/6aaa3b88a97246448b38569f828c9a6c.png';
+
 const demoTemplates: Template[] = [
-  { id: -1, title: 'Волшебный лес', description: 'Приключение среди добрых лесных зверят', cover_url: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/0cbcbed0-f539-487a-8567-b8431c4f7610.jpg', price: 1990, is_published: true },
+  { id: -1, title: 'Прогулки с динозаврами', description: 'Захватывающее приключение в мире доисторических ящеров', cover_url: HERO_IMAGE, price: 1990, is_published: true },
   { id: -2, title: 'Космический герой', description: 'Полёт к улыбающимся планетам и звёздам', cover_url: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/313511ae-986a-413a-9d36-3d944fe1562e.jpg', price: 1990, is_published: true },
   { id: -3, title: 'Сказочное королевство', description: 'Принцесса, дракон и волшебный замок', cover_url: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/100f4135-e32d-431d-bde1-49d0781862a1.jpg', price: 1990, is_published: true },
 ];
@@ -80,8 +82,8 @@ const Index = () => {
           <div className="relative animate-scale-in">
             <div className="absolute -inset-4 bg-gradient-to-tr from-primary/30 via-accent/30 to-secondary/40 rounded-[3rem] blur-2xl" />
             <img
-              src="https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/0cbcbed0-f539-487a-8567-b8431c4f7610.jpg"
-              alt="Детская фотокнига"
+              src={HERO_IMAGE}
+              alt="Детская фотокнига — Прогулки с динозаврами"
               className="relative rounded-[2.5rem] shadow-2xl w-full animate-float"
             />
           </div>

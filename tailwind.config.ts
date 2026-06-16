@@ -20,8 +20,8 @@ export default {
 		},
 		extend: {
 			fontFamily: {
-				display: ['"Baloo 2"', 'cursive'],
-				body: ['Nunito', 'sans-serif']
+				display: ['"Days One"', 'sans-serif'],
+				body: ['Rubik', 'sans-serif']
 			},
 			colors: {
 				border: 'hsl(var(--border))',

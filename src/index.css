@@ -13,7 +13,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 270 25% 28%;
 
-    --primary: 340 80% 72%;
+    --primary: 207 64% 52%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 170 55% 78%;
@@ -30,7 +30,7 @@
 
     --border: 280 30% 90%;
     --input: 280 30% 90%;
-    --ring: 340 80% 72%;
+    --ring: 207 64% 52%;
 
     --radius: 1.5rem;
 
@@ -110,9 +110,9 @@
   .text-gradient {
     background: linear-gradient(
       100deg,
-      hsl(340 80% 68%),
-      hsl(280 70% 70%),
-      hsl(190 70% 60%)
+      hsl(207 64% 45%),
+      hsl(220 70% 60%),
+      hsl(190 70% 55%)
     );
     -webkit-background-clip: text;
     background-clip: text;
@@ -120,7 +120,7 @@
   }
   .bg-dots {
     background-image: radial-gradient(
-      hsl(340 80% 88%) 1.5px,
+      hsl(207 64% 88%) 1.5px,
       transparent 1.5px
     );
     background-size: 24px 24px;
