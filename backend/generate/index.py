@@ -137,17 +137,31 @@ def handler(event: dict, context) -> dict:
                 except Exception:
                     continue
                 msg_type = msg.get('msg')
-                print(f'[GENERATE] msg: {msg_type}', flush=True)
+                print(f'[GENERATE] msg: {msg_type} full: {json.dumps(msg)[:500]}', flush=True)
                 if msg_type == 'process_completed':
-                    data_list = msg.get('output', {}).get('data', [])
+                    # пробуем все возможные структуры ответа
+                    output = msg.get('output') or {}
+                    data_list = output.get('data') or []
+                    # иногда данные прямо в msg
+                    if not data_list:
+                        data_list = msg.get('data') or []
                     if data_list:
                         item = data_list[0]
                         if isinstance(item, dict):
-                            result_url = item.get('url') or item.get('path', '')
+                            result_url = (
+                                item.get('url') or
+                                item.get('path') or
+                                item.get('value') or ''
+                            )
+                            # путь может быть вложен в 'image'
+                            if not result_url and isinstance(item.get('image'), dict):
+                                result_url = item['image'].get('url') or item['image'].get('path', '')
                         else:
                             result_url = str(item or '')
                         if result_url and result_url.startswith('/'):
                             result_url = HF_SPACE_URL + result_url
+                        if result_url and not result_url.startswith('http'):
+                            result_url = f'{HF_SPACE_URL}/file={result_url}'
                     break
                 if msg_type == 'process_errored':
                     return err(f'Space processing error: {msg}')
