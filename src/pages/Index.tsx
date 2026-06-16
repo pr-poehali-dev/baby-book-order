@@ -1,25 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import Icon from '@/components/ui/icon';
+import OrderDialog from '@/components/OrderDialog';
+import { Template, fetchTemplates } from '@/lib/api';
 
-const templates = [
-  {
-    title: 'Волшебный лес',
-    desc: 'Приключение среди добрых лесных зверят',
-    img: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/0cbcbed0-f539-487a-8567-b8431c4f7610.jpg',
-  },
-  {
-    title: 'Космический герой',
-    desc: 'Полёт к улыбающимся планетам и звёздам',
-    img: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/313511ae-986a-413a-9d36-3d944fe1562e.jpg',
-  },
-  {
-    title: 'Сказочное королевство',
-    desc: 'Принцесса, дракон и волшебный замок',
-    img: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/100f4135-e32d-431d-bde1-49d0781862a1.jpg',
-  },
+const demoTemplates: Template[] = [
+  { id: -1, title: 'Волшебный лес', description: 'Приключение среди добрых лесных зверят', cover_url: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/0cbcbed0-f539-487a-8567-b8431c4f7610.jpg', price: 1990, is_published: true },
+  { id: -2, title: 'Космический герой', description: 'Полёт к улыбающимся планетам и звёздам', cover_url: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/313511ae-986a-413a-9d36-3d944fe1562e.jpg', price: 1990, is_published: true },
+  { id: -3, title: 'Сказочное королевство', description: 'Принцесса, дракон и волшебный замок', cover_url: 'https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/files/100f4135-e32d-431d-bde1-49d0781862a1.jpg', price: 1990, is_published: true },
 ];
 
 const steps = [
@@ -30,12 +18,22 @@ const steps = [
 ];
 
 const Index = () => {
-  const [name, setName] = useState('');
-  const [age, setAge] = useState('');
-  const [fileName, setFileName] = useState('');
+  const [templates, setTemplates] = useState<Template[]>(demoTemplates);
+  const [selected, setSelected] = useState<Template | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    fetchTemplates(true)
+      .then((data) => { if (Array.isArray(data) && data.length) setTemplates(data); })
+      .catch(() => {});
+  }, []);
+
+  const openOrder = (t: Template) => { setSelected(t); setOpen(true); };
 
   return (
     <div className="min-h-screen overflow-x-hidden">
+      <OrderDialog template={selected} open={open} onClose={() => setOpen(false)} />
+
       {/* Header */}
       <header className="sticky top-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
         <div className="container flex items-center justify-between h-20">
@@ -46,9 +44,9 @@ const Index = () => {
           <nav className="hidden md:flex items-center gap-8 font-semibold text-foreground/70">
             <a href="#templates" className="hover:text-primary transition-colors">Книги</a>
             <a href="#how" className="hover:text-primary transition-colors">Как это работает</a>
-            <a href="#create" className="hover:text-primary transition-colors">Создать</a>
+            <a href="/admin" className="hover:text-primary transition-colors">Админка</a>
           </nav>
-          <Button className="rounded-full font-bold px-6">Войти</Button>
+          <Button onClick={() => openOrder(templates[0])} className="rounded-full font-bold px-6">Создать книгу</Button>
         </div>
       </header>
 
@@ -69,12 +67,14 @@ const Index = () => {
               Нейросеть бережно вставит лицо вашего ребёнка в иллюстрации красивой книги. Печатный формат 20×20 см.
             </p>
             <div className="flex flex-wrap gap-4">
-              <Button size="lg" className="rounded-full font-bold text-lg px-8 h-14 shadow-lg shadow-primary/30">
+              <Button onClick={() => openOrder(templates[0])} size="lg" className="rounded-full font-bold text-lg px-8 h-14 shadow-lg shadow-primary/30">
                 <Icon name="Sparkles" size={20} /> Создать книгу
               </Button>
-              <Button size="lg" variant="outline" className="rounded-full font-bold text-lg px-8 h-14 border-2">
-                Посмотреть примеры
-              </Button>
+              <a href="#templates">
+                <Button size="lg" variant="outline" className="rounded-full font-bold text-lg px-8 h-14 border-2">
+                  Посмотреть примеры
+                </Button>
+              </a>
             </div>
           </div>
           <div className="relative animate-scale-in">
@@ -114,14 +114,15 @@ const Index = () => {
           <p className="text-center text-muted-foreground text-lg mb-14">Готовые иллюстрированные шаблоны книг</p>
           <div className="grid md:grid-cols-3 gap-8">
             {templates.map((t, i) => (
-              <div key={t.title} className="group rounded-[2rem] bg-card overflow-hidden shadow-sm hover:shadow-2xl transition-all animate-fade-in" style={{ animationDelay: `${i * 0.12}s` }}>
+              <div key={t.id} className="group rounded-[2rem] bg-card overflow-hidden shadow-sm hover:shadow-2xl transition-all animate-fade-in" style={{ animationDelay: `${i * 0.12}s` }}>
                 <div className="overflow-hidden">
-                  <img src={t.img} alt={t.title} className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={t.cover_url} alt={t.title} className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-500" />
                 </div>
                 <div className="p-6">
                   <h3 className="font-display font-bold text-2xl mb-1">{t.title}</h3>
-                  <p className="text-muted-foreground mb-5">{t.desc}</p>
-                  <Button className="w-full rounded-full font-bold">Выбрать эту книгу</Button>
+                  <p className="text-muted-foreground mb-3">{t.description}</p>
+                  {t.price > 0 && <div className="font-display font-extrabold text-xl text-primary mb-4">{t.price} ₽</div>}
+                  <Button onClick={() => openOrder(t)} className="w-full rounded-full font-bold">Выбрать эту книгу</Button>
                 </div>
               </div>
             ))}
@@ -129,33 +130,14 @@ const Index = () => {
         </div>
       </section>
 
-      {/* Create form */}
-      <section id="create" className="py-20 bg-muted/40">
-        <div className="container max-w-2xl">
-          <h2 className="text-4xl md:text-5xl font-extrabold text-center mb-4">Создайте свою книгу</h2>
-          <p className="text-center text-muted-foreground text-lg mb-12">Загрузите фото и расскажите немного о малыше</p>
-          <div className="bg-card rounded-[2.5rem] p-8 md:p-10 shadow-xl">
-            <Label className="font-bold text-base mb-3 block">Фото ребёнка</Label>
-            <label className="flex flex-col items-center justify-center border-2 border-dashed border-primary/40 rounded-3xl p-10 cursor-pointer hover:bg-primary/5 transition-colors mb-6">
-              <Icon name="ImagePlus" className="text-primary mb-3" size={40} />
-              <span className="font-semibold text-foreground/80">{fileName || 'Нажмите, чтобы загрузить фото'}</span>
-              <span className="text-sm text-muted-foreground mt-1">JPG или PNG, хорошо видно лицо</span>
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => setFileName(e.target.files?.[0]?.name || '')} />
-            </label>
-            <div className="grid sm:grid-cols-2 gap-5 mb-8">
-              <div>
-                <Label className="font-bold text-base mb-2 block">Имя ребёнка</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Соня" className="rounded-2xl h-12 border-2" />
-              </div>
-              <div>
-                <Label className="font-bold text-base mb-2 block">Возраст</Label>
-                <Input value={age} onChange={(e) => setAge(e.target.value)} type="number" placeholder="5" className="rounded-2xl h-12 border-2" />
-              </div>
-            </div>
-            <Button size="lg" className="w-full rounded-full font-bold text-lg h-14 shadow-lg shadow-primary/30">
-              <Icon name="Sparkles" size={20} /> Создать книгу с AI
-            </Button>
-          </div>
+      {/* CTA */}
+      <section className="py-20 bg-muted/40">
+        <div className="container max-w-2xl text-center">
+          <h2 className="text-4xl md:text-5xl font-extrabold mb-4">Готовы создать сказку?</h2>
+          <p className="text-muted-foreground text-lg mb-8">Выберите книгу, загрузите фото малыша — и увидите предпросмотр сразу.</p>
+          <Button onClick={() => openOrder(templates[0])} size="lg" className="rounded-full font-bold text-lg px-10 h-14 shadow-lg shadow-primary/30">
+            <Icon name="Sparkles" size={20} /> Начать
+          </Button>
         </div>
       </section>
 

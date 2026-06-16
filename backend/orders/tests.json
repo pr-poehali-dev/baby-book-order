@@ -1,0 +1,1 @@
+{"tests": [{"name": "OPTIONS preflight", "method": "OPTIONS", "path": "/", "expectedStatus": 200}, {"name": "List orders", "method": "GET", "path": "/", "expectedStatus": 200}]}
