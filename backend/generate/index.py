@@ -80,7 +80,7 @@ def handler(event: dict, context) -> dict:
             0, 0, False,
         ]}
         resp = requests.post(
-            f'{HF_SPACE_URL}/run/run_inference',
+            f'{HF_SPACE_URL}/run_inference',
             headers={**auth, 'Content-Type': 'application/json'},
             json=payload,
             timeout=115,
