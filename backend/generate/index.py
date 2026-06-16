@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import os
@@ -9,31 +10,29 @@ import boto3
 HF_SPACE_URL = 'https://tonyassi-face-swap.hf.space'
 
 
-def upload_image(image_url: str, filename: str, auth: dict) -> str:
-    """Скачивает изображение и загружает в Space, возвращает путь."""
+def to_b64(image_url: str) -> str:
+    """Скачивает изображение, сжимает и возвращает base64 data URL."""
     raw = requests.get(image_url, timeout=20)
     raw.raise_for_status()
     content = raw.content
-    if len(content) > 500_000:
-        from PIL import Image
-        img = Image.open(io.BytesIO(content)).convert('RGB')
-        if img.width > 800 or img.height > 800:
-            img.thumbnail((800, 800), Image.LANCZOS)
+    from PIL import Image
+    img = Image.open(io.BytesIO(content)).convert('RGB')
+    if img.width > 800 or img.height > 800:
+        img.thumbnail((800, 800), Image.LANCZOS)
+    quality = 80
+    buf = io.BytesIO()
+    while True:
         buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=75)
-        content = buf.getvalue()
-    resp = requests.post(
-        f'{HF_SPACE_URL}/upload',
-        headers=auth,
-        files={'files': (filename, content, 'image/jpeg')},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()[0]
+        img.save(buf, format='JPEG', quality=quality)
+        if buf.tell() < 400_000 or quality <= 40:
+            break
+        quality -= 15
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f'data:image/jpeg;base64,{b64}'
 
 
 def handler(event: dict, context) -> dict:
-    """Face-swap через HuggingFace Space tonyassi/face-swap (insightface).
+    """Face-swap через tonyassi/face-swap (Gradio 6, base64).
     source_face_url = фото ребёнка, target_image_url = страница шаблона."""
 
     cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}
@@ -63,64 +62,63 @@ def handler(event: dict, context) -> dict:
     auth = {'Authorization': f'Bearer {token}'}
 
     try:
-        print('[GEN] uploading source...', flush=True)
-        src_path = upload_image(src_url, 'source.jpg', auth)
-        print(f'[GEN] src: {src_path}', flush=True)
+        print('[GEN] preparing source...', flush=True)
+        src_b64 = to_b64(src_url)
+        print(f'[GEN] src size: {len(src_b64)}', flush=True)
     except Exception as e:
-        return err(f'src upload: {e}')
+        return err(f'src: {e}')
 
     try:
-        print('[GEN] uploading target...', flush=True)
-        tgt_path = upload_image(tgt_url, 'target.jpg', auth)
-        print(f'[GEN] tgt: {tgt_path}', flush=True)
+        print('[GEN] preparing target...', flush=True)
+        tgt_b64 = to_b64(tgt_url)
+        print(f'[GEN] tgt size: {len(tgt_b64)}', flush=True)
     except Exception as e:
-        return err(f'tgt upload: {e}')
+        return err(f'tgt: {e}')
 
     try:
         print('[GEN] calling swap_faces...', flush=True)
-        payload = {
-            'data': [
-                {'path': src_path, 'meta': {'_type': 'gradio.FileData'}},
-                {'path': tgt_path, 'meta': {'_type': 'gradio.FileData'}},
-            ],
-            'api_name': '/swap_faces',
-        }
+        payload = {'data': [src_b64, tgt_b64], 'api_name': '/swap_faces'}
         resp = requests.post(
             f'{HF_SPACE_URL}/run/predict',
             headers={**auth, 'Content-Type': 'application/json'},
             json=payload,
             timeout=115,
         )
-        print(f'[GEN] {resp.status_code}: {resp.text[:400]}', flush=True)
+        print(f'[GEN] {resp.status_code}: {resp.text[:300]}', flush=True)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        return err(f'inference: {e}\n{traceback.format_exc()[:500]}')
+        return err(f'inference: {e}\n{traceback.format_exc()[:400]}')
 
     try:
         item = (data.get('data') or [None])[0]
-        print(f'[GEN] item: {str(item)[:300]}', flush=True)
-        if isinstance(item, dict):
+        print(f'[GEN] item: {str(item)[:150]}', flush=True)
+        result_bytes = None
+        if isinstance(item, str):
+            if item.startswith('data:'):
+                result_bytes = base64.b64decode(item.split(',', 1)[1])
+            elif item.startswith('http'):
+                result_bytes = requests.get(item, timeout=20).content
+            elif item.startswith('/'):
+                result_bytes = requests.get(f'{HF_SPACE_URL}{item}', headers=auth, timeout=20).content
+        elif isinstance(item, dict):
             ru = item.get('url') or item.get('path', '')
-        else:
-            ru = str(item or '')
-        if not ru:
-            return err(f'no url: {data}')
-        if ru.startswith('/'):
-            ru = HF_SPACE_URL + ru
-        if not ru.startswith('http'):
-            ru = f'{HF_SPACE_URL}/file={ru}'
-        print(f'[GEN] result: {ru}', flush=True)
+            if ru and not ru.startswith('http'):
+                ru = f'{HF_SPACE_URL}/file={ru}'
+            if ru:
+                result_bytes = requests.get(ru, headers=auth, timeout=20).content
+        if not result_bytes:
+            return err(f'cannot extract image: {str(item)[:200]}')
+        print(f'[GEN] result: {len(result_bytes)} bytes', flush=True)
     except Exception as e:
         return err(f'parse: {e}')
 
     try:
-        img = requests.get(ru, headers=auth, timeout=20).content
         key = f'generated/{uuid.uuid4().hex}.jpg'
         s3 = boto3.client('s3', endpoint_url='https://bucket.poehali.dev',
                           aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
                           aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-        s3.put_object(Bucket='files', Key=key, Body=img, ContentType='image/jpeg')
+        s3.put_object(Bucket='files', Key=key, Body=result_bytes, ContentType='image/jpeg')
         cdn = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
         print(f'[GEN] done: {cdn}', flush=True)
     except Exception as e:
