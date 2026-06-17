@@ -63,7 +63,7 @@ def handler(event: dict, context) -> dict:
 
     try:
         print('[GEN] connecting to Space...', flush=True)
-        client = Client('Dentro/face-swap', hf_token=token)
+        client = Client('Dentro/face-swap', headers={'Authorization': f'Bearer {token}'})
 
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as sf:
             sf.write(src_bytes)
