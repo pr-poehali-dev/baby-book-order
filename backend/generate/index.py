@@ -7,11 +7,11 @@ import traceback
 import requests
 import boto3
 
-HF_SPACE_URL = 'https://tonyassi-face-swap.hf.space'
+HF_SPACE_URL = 'https://dentro-face-swap.hf.space'
 
 
 def handler(event: dict, context) -> dict:
-    """Face-swap через tonyassi/face-swap (Gradio 6).
+    """Face-swap через Dentro/face-swap (Gradio, insightface).
     source_face_url = фото ребёнка, target_image_url = страница шаблона."""
 
     cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}
@@ -40,15 +40,17 @@ def handler(event: dict, context) -> dict:
 
     auth = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
-    # Gradio 6: /gradio_api/run/predict, передаём URL напрямую
+    # Dentro/face-swap: /predict принимает sourceImage, sourceFaceIndex, targetImage, targetFaceIndex
     try:
-        print(f'[GEN] calling swap_faces src={src_url[:60]} tgt={tgt_url[:60]}', flush=True)
+        print(f'[GEN] calling /predict...', flush=True)
         payload = {
             'data': [
-                {'url': src_url, 'meta': {'_type': 'gradio.FileData'}},
-                {'url': tgt_url, 'meta': {'_type': 'gradio.FileData'}},
+                {'url': src_url, 'meta': {'_type': 'gradio.FileData'}},  # sourceImage
+                0,                                                          # sourceFaceIndex
+                {'url': tgt_url, 'meta': {'_type': 'gradio.FileData'}},  # targetImage
+                0,                                                          # targetFaceIndex
             ],
-            'api_name': '/swap_faces',
+            'api_name': '/predict',
         }
         resp = requests.post(
             f'{HF_SPACE_URL}/gradio_api/run/predict',
