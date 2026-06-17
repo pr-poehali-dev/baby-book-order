@@ -7,11 +7,9 @@ import traceback
 import requests
 import boto3
 
-HF_SPACE_URL = 'https://dentro-face-swap.hf.space'
-
 
 def handler(event: dict, context) -> dict:
-    """Face-swap через Dentro/face-swap (Gradio, insightface).
+    """Face-swap через Dentro/face-swap с gradio_client (поддержка WebSocket очереди).
     source_face_url = фото ребёнка, target_image_url = страница шаблона."""
 
     cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}
@@ -38,59 +36,76 @@ def handler(event: dict, context) -> dict:
     if not token:
         return err('HUGGINGFACE_TOKEN missing')
 
-    auth = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    # Скачиваем изображения во временные файлы для gradio_client
+    import tempfile
+    from gradio_client import Client, handle_file
 
-    # Dentro/face-swap: /predict принимает sourceImage, sourceFaceIndex, targetImage, targetFaceIndex
     try:
-        print(f'[GEN] calling /predict...', flush=True)
-        payload = {
-            'data': [
-                {'url': src_url, 'meta': {'_type': 'gradio.FileData'}},  # sourceImage
-                0,                                                          # sourceFaceIndex
-                {'url': tgt_url, 'meta': {'_type': 'gradio.FileData'}},  # targetImage
-                0,                                                          # targetFaceIndex
-            ],
-            'api_name': '/predict',
-        }
-        # Пробуем оба пути — Gradio 4.x и Gradio 5+
-        url1 = f'{HF_SPACE_URL}/run/predict'
-        url2 = f'{HF_SPACE_URL}/gradio_api/run/predict'
-        resp = requests.post(url1, headers=auth, json=payload, timeout=115)
-        print(f'[GEN] {url1} -> {resp.status_code}: {resp.text[:200]}', flush=True)
-        if resp.status_code == 404:
-            resp = requests.post(url2, headers=auth, json=payload, timeout=115)
-            print(f'[GEN] {url2} -> {resp.status_code}: {resp.text[:200]}', flush=True)
-        resp.raise_for_status()
-        data = resp.json()
+        print('[GEN] downloading images...', flush=True)
+        src_bytes = requests.get(src_url, timeout=20).content
+        tgt_bytes = requests.get(tgt_url, timeout=20).content
+
+        # Сжимаем если нужно
+        from PIL import Image
+        def compress(data):
+            img = Image.open(io.BytesIO(data)).convert('RGB')
+            if img.width > 800 or img.height > 800:
+                img.thumbnail((800, 800), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=80)
+            return buf.getvalue()
+
+        src_bytes = compress(src_bytes)
+        tgt_bytes = compress(tgt_bytes)
+        print(f'[GEN] src={len(src_bytes)}b tgt={len(tgt_bytes)}b', flush=True)
     except Exception as e:
-        return err(f'inference: {e}\n{traceback.format_exc()[:400]}')
+        return err(f'download: {e}')
 
-    # Извлекаем результат
     try:
-        item = (data.get('data') or [None])[0]
-        print(f'[GEN] item: {str(item)[:200]}', flush=True)
-        result_bytes = None
+        print('[GEN] connecting to Space...', flush=True)
+        client = Client('Dentro/face-swap', hf_token=token)
 
-        if isinstance(item, str):
-            if item.startswith('data:'):
-                result_bytes = base64.b64decode(item.split(',', 1)[1])
-            elif item.startswith('http'):
-                result_bytes = requests.get(item, timeout=20).content
-            elif item.startswith('/'):
-                result_bytes = requests.get(f'{HF_SPACE_URL}{item}', timeout=20).content
-        elif isinstance(item, dict):
-            ru = item.get('url') or ''
-            if not ru:
-                path = item.get('path', '')
-                ru = f'{HF_SPACE_URL}/gradio_api/file={path}' if path else ''
-            if ru and not ru.startswith('http'):
-                ru = f'{HF_SPACE_URL}{ru}'
-            if ru:
-                result_bytes = requests.get(ru, timeout=20).content
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as sf:
+            sf.write(src_bytes)
+            src_path = sf.name
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tf:
+            tf.write(tgt_bytes)
+            tgt_path = tf.name
+
+        print('[GEN] predicting...', flush=True)
+        result = client.predict(
+            sourceImage=handle_file(src_path),
+            sourceFaceIndex=0,
+            targetImage=handle_file(tgt_path),
+            targetFaceIndex=0,
+            api_name='/predict',
+        )
+        print(f'[GEN] result type={type(result).__name__} val={str(result)[:200]}', flush=True)
+    except Exception as e:
+        return err(f'inference: {e}\n{traceback.format_exc()[:500]}')
+
+    # Извлекаем байты результата
+    try:
+        result_bytes = None
+        if isinstance(result, str):
+            if result.startswith('data:'):
+                result_bytes = base64.b64decode(result.split(',', 1)[1])
+            elif os.path.exists(result):
+                with open(result, 'rb') as f:
+                    result_bytes = f.read()
+            elif result.startswith('http'):
+                result_bytes = requests.get(result, timeout=20).content
+        elif isinstance(result, dict):
+            path = result.get('path') or result.get('url') or ''
+            if path and os.path.exists(path):
+                with open(path, 'rb') as f:
+                    result_bytes = f.read()
+            elif path.startswith('http'):
+                result_bytes = requests.get(path, timeout=20).content
 
         if not result_bytes:
-            return err(f'cannot extract image: {str(item)[:200]}')
-        print(f'[GEN] result: {len(result_bytes)} bytes', flush=True)
+            return err(f'cannot extract image: {str(result)[:200]}')
+        print(f'[GEN] image bytes: {len(result_bytes)}', flush=True)
     except Exception as e:
         return err(f'parse: {e}')
 
