@@ -74,10 +74,10 @@ def handler(event: dict, context) -> dict:
 
         print('[GEN] predicting...', flush=True)
         result = client.predict(
-            sourceImage=handle_file(src_path),
-            sourceFaceIndex=0,
-            targetImage=handle_file(tgt_path),
-            targetFaceIndex=0,
+            handle_file(src_path),  # sourceImage
+            0,                      # sourceFaceIndex
+            handle_file(tgt_path),  # targetImage
+            0,                      # targetFaceIndex
             api_name='/predict',
         )
         print(f'[GEN] result type={type(result).__name__} val={str(result)[:200]}', flush=True)
