@@ -175,6 +175,15 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
               </div>
             )}
             <p className="text-xs text-muted-foreground text-center">Формат 20×20 см, выгрузка в JPEG после оплаты</p>
+            <div className="flex flex-col gap-2">
+              {pages.map((src, i) => (
+                <a key={i} href={src} download={`страница-${i + 1}.jpg`} target="_blank" rel="noreferrer">
+                  <Button variant="outline" size="sm" className="w-full rounded-full">
+                    <Icon name="Download" size={15} /> Скачать страницу {i + 1}
+                  </Button>
+                </a>
+              ))}
+            </div>
             <Button onClick={reset} size="lg" className="w-full rounded-full font-bold">
               <Icon name="ShoppingCart" size={18} /> Оформить заказ
             </Button>
