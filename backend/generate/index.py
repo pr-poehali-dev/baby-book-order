@@ -52,13 +52,14 @@ def handler(event: dict, context) -> dict:
             ],
             'api_name': '/predict',
         }
-        resp = requests.post(
-            f'{HF_SPACE_URL}/gradio_api/run/predict',
-            headers=auth,
-            json=payload,
-            timeout=115,
-        )
-        print(f'[GEN] {resp.status_code}: {resp.text[:400]}', flush=True)
+        # Пробуем оба пути — Gradio 4.x и Gradio 5+
+        url1 = f'{HF_SPACE_URL}/run/predict'
+        url2 = f'{HF_SPACE_URL}/gradio_api/run/predict'
+        resp = requests.post(url1, headers=auth, json=payload, timeout=115)
+        print(f'[GEN] {url1} -> {resp.status_code}: {resp.text[:200]}', flush=True)
+        if resp.status_code == 404:
+            resp = requests.post(url2, headers=auth, json=payload, timeout=115)
+            print(f'[GEN] {url2} -> {resp.status_code}: {resp.text[:200]}', flush=True)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
