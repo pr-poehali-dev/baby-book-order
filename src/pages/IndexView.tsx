@@ -57,6 +57,14 @@ export default function IndexView({ user, cartItems, templates, heroImage, steps
                     <Icon name="User" size={16} /> {user.name || 'Кабинет'}
                   </Button>
                 </a>
+                {/* Админка — только для администраторов */}
+                {user.role === 'admin' && (
+                  <a href="/admin">
+                    <Button variant="ghost" size="sm" className="rounded-full gap-1.5 text-muted-foreground">
+                      <Icon name="Settings" size={16} /> Админка
+                    </Button>
+                  </a>
+                )}
               </>
             ) : (
               /* Кнопка входа */
