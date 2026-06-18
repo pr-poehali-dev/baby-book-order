@@ -44,6 +44,28 @@ export async function authMe(): Promise<User | null> {
   return data.user || null;
 }
 
+export async function authRegister(data: { name: string; email: string; phone: string; password: string }): Promise<string> {
+  const res = await fetch(API.auth, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'register', ...data }),
+  });
+  const d = await res.json();
+  if (!res.ok || d.error) throw new Error(d.error || 'Ошибка регистрации');
+  return d.session_id;
+}
+
+export async function authLoginPassword(login: string, password: string): Promise<string> {
+  const res = await fetch(API.auth, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'login', login, password }),
+  });
+  const d = await res.json();
+  if (!res.ok || d.error) throw new Error(d.error || 'Неверный логин или пароль');
+  return d.session_id;
+}
+
 export async function authSendCode(phone: string): Promise<void> {
   const res = await fetch(API.auth, {
     method: 'POST',

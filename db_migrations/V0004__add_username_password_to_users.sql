@@ -1,0 +1,3 @@
+ALTER TABLE t_p50926286_baby_book_order.users
+  ADD COLUMN IF NOT EXISTS username VARCHAR(200),
+  ADD COLUMN IF NOT EXISTS password_hash VARCHAR(200);

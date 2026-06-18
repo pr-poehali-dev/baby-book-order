@@ -3,6 +3,7 @@ import os
 import random
 import secrets
 import string
+import hashlib
 import urllib.request
 import urllib.parse
 import psycopg2
@@ -21,6 +22,9 @@ def cors():
 
 def json_resp(data, status=200):
     return {'statusCode': status, 'headers': {**cors(), 'Content-Type': 'application/json'}, 'body': json.dumps(data, ensure_ascii=False)}
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 def make_session(user_id: int) -> str:
     sid = secrets.token_hex(32)
@@ -55,7 +59,7 @@ def send_sms(phone: str, code: str):
     urllib.request.urlopen(urllib.request.Request(url), timeout=10)
 
 def handler(event: dict, context) -> dict:
-    """Авторизация: SMS-код, Яндекс ID, ВК ID, проверка сессии. action в теле: me, send-code, verify-code, oauth-yandex, oauth-vk, logout"""
+    """Авторизация: register, login, me, send-code, verify-code, oauth-yandex, oauth-vk, logout"""
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': cors(), 'body': ''}
 
@@ -69,10 +73,65 @@ def handler(event: dict, context) -> dict:
     action = body.get('action', '')
     sid = (event.get('headers') or {}).get('x-session-id') or (event.get('headers') or {}).get('X-Session-Id', '')
 
+    # ── РЕГИСТРАЦИЯ ──────────────────────────────────────────────
+    if action == 'register':
+        name = body.get('name', '').strip()
+        email = body.get('email', '').strip().lower()
+        phone = body.get('phone', '').strip()
+        password = body.get('password', '').strip()
+        if not name or not password:
+            return json_resp({'error': 'Укажите имя и пароль'}, 400)
+        if not email and not phone:
+            return json_resp({'error': 'Укажите email или телефон'}, 400)
+        conn = get_conn()
+        cur = conn.cursor()
+        if email:
+            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+            if cur.fetchone():
+                cur.close(); conn.close()
+                return json_resp({'error': 'Пользователь с таким email уже существует'}, 400)
+        if phone:
+            cur.execute("SELECT id FROM users WHERE phone = %s", (phone,))
+            if cur.fetchone():
+                cur.close(); conn.close()
+                return json_resp({'error': 'Пользователь с таким телефоном уже существует'}, 400)
+        pw_hash = hash_password(password)
+        cur.execute(
+            "INSERT INTO users (name, email, phone, password_hash) VALUES (%s, %s, %s, %s) RETURNING id",
+            (name, email or None, phone or None, pw_hash)
+        )
+        user_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return json_resp({'session_id': make_session(user_id)})
+
+    # ── ВХОД ПО ПАРОЛЮ ────────────────────────────────────────────
+    if action == 'login':
+        login_val = body.get('login', '').strip().lower()
+        password = body.get('password', '').strip()
+        if not login_val or not password:
+            return json_resp({'error': 'Укажите логин и пароль'}, 400)
+        pw_hash = hash_password(password)
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM users WHERE (email = %s OR phone = %s) AND password_hash = %s",
+            (login_val, login_val, pw_hash)
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return json_resp({'error': 'Неверный логин или пароль'}, 400)
+        return json_resp({'session_id': make_session(row[0])})
+
+    # ── ТЕКУЩИЙ ПОЛЬЗОВАТЕЛЬ ──────────────────────────────────────
     if action == 'me':
         user = get_user_by_session(sid) if sid else None
         return json_resp({'user': user})
 
+    # ── SMS: ОТПРАВИТЬ КОД ────────────────────────────────────────
     if action == 'send-code':
         phone = body.get('phone', '').strip()
         if not phone:
@@ -93,6 +152,7 @@ def handler(event: dict, context) -> dict:
             print(f'[SMS ERROR] {e}', flush=True)
         return json_resp({'ok': True})
 
+    # ── SMS: ПРОВЕРИТЬ КОД ────────────────────────────────────────
     if action == 'verify-code':
         phone = body.get('phone', '').strip()
         code = body.get('code', '').strip()
@@ -106,8 +166,7 @@ def handler(event: dict, context) -> dict:
         )
         row = cur.fetchone()
         if not row:
-            cur.close()
-            conn.close()
+            cur.close(); conn.close()
             return json_resp({'error': 'Неверный или просроченный код'}, 400)
         cur.execute("UPDATE sms_codes SET used = TRUE WHERE id = %s", (row[0],))
         cur.execute("SELECT id FROM users WHERE phone = %s", (phone,))
@@ -122,6 +181,7 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return json_resp({'session_id': make_session(user_id)})
 
+    # ── OAUTH ЯНДЕКС ──────────────────────────────────────────────
     if action == 'oauth-yandex':
         code = body.get('code', '')
         redirect_uri = body.get('redirect_uri', '')
@@ -131,14 +191,13 @@ def handler(event: dict, context) -> dict:
         client_secret = os.environ.get('YANDEX_CLIENT_SECRET', '')
         token_data = urllib.parse.urlencode({
             'grant_type': 'authorization_code', 'code': code,
-            'client_id': client_id, 'client_secret': client_secret,
-            'redirect_uri': redirect_uri
+            'client_id': client_id, 'client_secret': client_secret, 'redirect_uri': redirect_uri
         }).encode()
         req = urllib.request.Request('https://oauth.yandex.ru/token', data=token_data)
         resp = json.loads(urllib.request.urlopen(req, timeout=10).read())
         access_token = resp.get('access_token')
         if not access_token:
-            return json_resp({'error': 'Ошибка получения токена Яндекс'}, 400)
+            return json_resp({'error': 'Ошибка токена Яндекс'}, 400)
         req2 = urllib.request.Request('https://login.yandex.ru/info?format=json', headers={'Authorization': f'OAuth {access_token}'})
         profile = json.loads(urllib.request.urlopen(req2, timeout=10).read())
         yandex_id = str(profile.get('id', ''))
@@ -154,11 +213,10 @@ def handler(event: dict, context) -> dict:
         else:
             cur.execute("INSERT INTO users (yandex_id, name, email) VALUES (%s, %s, %s) RETURNING id", (yandex_id, name, email))
             user_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        conn.close()
+        conn.commit(); cur.close(); conn.close()
         return json_resp({'session_id': make_session(user_id)})
 
+    # ── OAUTH ВК ──────────────────────────────────────────────────
     if action == 'oauth-vk':
         code = body.get('code', '')
         redirect_uri = body.get('redirect_uri', '')
@@ -166,17 +224,14 @@ def handler(event: dict, context) -> dict:
             return json_resp({'error': 'Нет кода'}, 400)
         client_id = os.environ.get('VK_CLIENT_ID', '')
         client_secret = os.environ.get('VK_CLIENT_SECRET', '')
-        params = urllib.parse.urlencode({
-            'client_id': client_id, 'client_secret': client_secret,
-            'redirect_uri': redirect_uri, 'code': code
-        })
+        params = urllib.parse.urlencode({'client_id': client_id, 'client_secret': client_secret, 'redirect_uri': redirect_uri, 'code': code})
         req = urllib.request.Request(f'https://oauth.vk.com/access_token?{params}')
         resp = json.loads(urllib.request.urlopen(req, timeout=10).read())
         access_token = resp.get('access_token')
         vk_user_id = str(resp.get('user_id', ''))
         vk_email = resp.get('email', '')
         if not access_token:
-            return json_resp({'error': 'Ошибка получения токена ВК'}, 400)
+            return json_resp({'error': 'Ошибка токена ВК'}, 400)
         params2 = urllib.parse.urlencode({'user_ids': vk_user_id, 'fields': 'first_name,last_name', 'access_token': access_token, 'v': '5.131'})
         req2 = urllib.request.Request(f'https://api.vk.com/method/users.get?{params2}')
         profile = json.loads(urllib.request.urlopen(req2, timeout=10).read())
@@ -192,19 +247,16 @@ def handler(event: dict, context) -> dict:
         else:
             cur.execute("INSERT INTO users (vk_id, name, email) VALUES (%s, %s, %s) RETURNING id", (vk_user_id, name, vk_email))
             user_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        conn.close()
+        conn.commit(); cur.close(); conn.close()
         return json_resp({'session_id': make_session(user_id)})
 
+    # ── ВЫХОД ─────────────────────────────────────────────────────
     if action == 'logout':
         if sid:
             conn = get_conn()
             cur = conn.cursor()
             cur.execute("UPDATE sessions SET expires_at = NOW() WHERE id = %s", (sid,))
-            conn.commit()
-            cur.close()
-            conn.close()
+            conn.commit(); cur.close(); conn.close()
         return json_resp({'ok': True})
 
     return json_resp({'error': 'Неизвестное действие'}, 400)
