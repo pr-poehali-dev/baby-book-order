@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import Icon from "@/components/ui/icon";
 import OrderDialog from "@/components/OrderDialog";
 import { Template, fetchTemplates } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
 
 const HERO_IMAGE =
   "https://cdn.poehali.dev/projects/df9297ce-0250-4216-8aa4-94bdb09db7dc/bucket/covers/6aaa3b88a97246448b38569f828c9a6c.png";
@@ -60,6 +62,8 @@ const steps = [
 ];
 
 const Index = () => {
+  const { user } = useAuth();
+  const { items } = useCart();
   const [templates, setTemplates] = useState<Template[]>(demoTemplates);
   const [selected, setSelected] = useState<Template | null>(null);
   const [open, setOpen] = useState(false);
@@ -95,25 +99,42 @@ const Index = () => {
             </span>
           </div>
           <nav className="hidden md:flex items-center gap-8 font-semibold text-foreground/70">
-            <a
-              href="#templates"
-              className="hover:text-primary transition-colors"
-            >
-              Книги
-            </a>
-            <a href="#how" className="hover:text-primary transition-colors">
-              Как это работает
-            </a>
-            <a href="/admin" className="hover:text-primary transition-colors">
-              Админка
-            </a>
+            <a href="#templates" className="hover:text-primary transition-colors">Книги</a>
+            <a href="#how" className="hover:text-primary transition-colors">Как это работает</a>
           </nav>
-          <Button
-            onClick={() => openOrder(templates[0])}
-            className="rounded-full font-bold px-6"
-          >
-            Создать книгу
-          </Button>
+          <div className="flex items-center gap-2">
+            {user ? (
+              <>
+                <a href="/cart">
+                  <Button variant="outline" size="sm" className="rounded-full gap-1.5 relative">
+                    <Icon name="ShoppingCart" size={16} />
+                    {items.length > 0 && (
+                      <span className="bg-primary text-primary-foreground text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                        {items.length}
+                      </span>
+                    )}
+                  </Button>
+                </a>
+                <a href="/account">
+                  <Button variant="ghost" size="sm" className="rounded-full gap-1.5">
+                    <Icon name="User" size={16} /> {user.name || 'Кабинет'}
+                  </Button>
+                </a>
+              </>
+            ) : (
+              <a href="/login">
+                <Button variant="outline" size="sm" className="rounded-full gap-1.5">
+                  <Icon name="LogIn" size={16} /> Войти
+                </Button>
+              </a>
+            )}
+            <Button
+              onClick={() => openOrder(templates[0])}
+              className="rounded-full font-bold px-6"
+            >
+              Создать книгу
+            </Button>
+          </div>
         </div>
       </header>
 

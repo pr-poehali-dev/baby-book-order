@@ -1,0 +1,17 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "POST send-code без телефона",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "send-code"},
+      "expectedStatus": 400
+    }
+  ]
+}

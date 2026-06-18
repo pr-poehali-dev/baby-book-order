@@ -3,7 +3,94 @@ export const API = {
   orders: 'https://functions.poehali.dev/23c3de0f-8e9f-4727-ab16-8e0abe2b793b',
   templates: 'https://functions.poehali.dev/78819c1d-e507-4a37-8c83-63d58af77ccd',
   generate: 'https://functions.poehali.dev/e82e9202-9c82-418b-a294-9827d695fcad',
+  auth: 'https://functions.poehali.dev/7ec8b743-919f-451c-a25c-728e9fb2e156',
+  profile: 'https://functions.poehali.dev/be831ec0-2776-496b-9a79-b9cd76aa3f90',
+  cart: 'https://functions.poehali.dev/33d547bf-4dab-4e3b-9c8f-084b4f2b5a2b',
 };
+
+export function getSessionId(): string {
+  return localStorage.getItem('session_id') || '';
+}
+
+export function setSessionId(sid: string) {
+  localStorage.setItem('session_id', sid);
+}
+
+export function clearSessionId() {
+  localStorage.removeItem('session_id');
+}
+
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'X-Session-Id': getSessionId() };
+}
+
+export interface User {
+  id: number;
+  phone: string | null;
+  name: string | null;
+  email: string | null;
+  role: string;
+}
+
+export async function authMe(): Promise<User | null> {
+  const sid = getSessionId();
+  if (!sid) return null;
+  const res = await fetch(API.auth, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ action: 'me' }),
+  });
+  const data = await res.json();
+  return data.user || null;
+}
+
+export async function authSendCode(phone: string): Promise<void> {
+  const res = await fetch(API.auth, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'send-code', phone }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || 'Ошибка отправки');
+}
+
+export async function authVerifyCode(phone: string, code: string): Promise<string> {
+  const res = await fetch(API.auth, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'verify-code', phone, code }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || 'Неверный код');
+  return data.session_id;
+}
+
+export async function authLogout(): Promise<void> {
+  await fetch(API.auth, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ action: 'logout' }),
+  });
+  clearSessionId();
+}
+
+export async function profileAction(action: string, body: Record<string, unknown> = {}) {
+  const res = await fetch(API.profile, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ action, ...body }),
+  });
+  return res.json();
+}
+
+export async function cartAction(action: string, body: Record<string, unknown> = {}) {
+  const res = await fetch(API.cart, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ action, ...body }),
+  });
+  return res.json();
+}
 
 export async function faceSwap(sourceFaceUrl: string, targetImageUrl: string): Promise<string> {
   const res = await fetch(API.generate, {

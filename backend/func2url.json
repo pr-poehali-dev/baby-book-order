@@ -1,4 +1,7 @@
 {
+  "profile": "https://functions.poehali.dev/be831ec0-2776-496b-9a79-b9cd76aa3f90",
+  "auth": "https://functions.poehali.dev/7ec8b743-919f-451c-a25c-728e9fb2e156",
+  "cart": "https://functions.poehali.dev/33d547bf-4dab-4e3b-9c8f-084b4f2b5a2b",
   "generate": "https://functions.poehali.dev/e82e9202-9c82-418b-a294-9827d695fcad",
   "upload": "https://functions.poehali.dev/1af676dc-f92d-4a52-b85c-6c1f09d7c787",
   "orders": "https://functions.poehali.dev/23c3de0f-8e9f-4727-ab16-8e0abe2b793b",
