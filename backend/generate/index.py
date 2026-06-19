@@ -47,6 +47,44 @@ def handler(event: dict, context) -> dict:
         tgt_url = (body.get('target_image_url') or '').strip()
         print(f'[GEN] src_url={src_url[:60]} tgt_url={tgt_url[:60]}', flush=True)
 
+        # Тест генерации картинки по текстовому промпту
+        if body.get('action') == 'ping_image':
+            api_key = os.environ.get('OPENROUTER_API_KEY', '')
+            if not api_key:
+                return err('OPENROUTER_API_KEY missing')
+            print('[GEN] ping_image test...', flush=True)
+            resp = requests.post(
+                OPENROUTER_URL,
+                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json', 'HTTP-Referer': 'https://poehali.dev'},
+                json={
+                    'model': MODEL,
+                    'messages': [{'role': 'user', 'content': 'Draw a simple cute cartoon cat. Output only the image.'}],
+                    'modalities': ['image', 'text'],
+                    'include_reasoning': False,
+                },
+                timeout=60,
+            )
+            print(f'[GEN] ping_image status={resp.status_code}', flush=True)
+            data = resp.json()
+            print(f'[GEN] ping_image response={json.dumps(data)[:1000]}', flush=True)
+            # Проверяем наличие изображения в ответе
+            image_found = False
+            choices = data.get('choices', [])
+            if choices:
+                content = choices[0].get('message', {}).get('content', '')
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get('type') == 'image_url':
+                            image_found = True
+                            break
+                elif isinstance(content, str) and content.startswith('data:image'):
+                    image_found = True
+            return {'statusCode': 200, 'headers': H, 'body': json.dumps({
+                'status': resp.status_code,
+                'image_found': image_found,
+                'response_preview': json.dumps(data)[:800],
+            })}
+
         # Тестовый пинг модели без изображений
         if body.get('action') == 'ping':
             api_key = os.environ.get('OPENROUTER_API_KEY', '')
@@ -108,6 +146,8 @@ def handler(event: dict, context) -> dict:
                     ],
                 }
             ],
+            'modalities': ['image', 'text'],
+            'include_reasoning': False,
         }
 
         print('[GEN] calling OpenRouter...', flush=True)
