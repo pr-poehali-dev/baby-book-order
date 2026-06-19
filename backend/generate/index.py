@@ -47,6 +47,21 @@ def handler(event: dict, context) -> dict:
         tgt_url = (body.get('target_image_url') or '').strip()
         print(f'[GEN] src_url={src_url[:60]} tgt_url={tgt_url[:60]}', flush=True)
 
+        # Тестовый пинг модели без изображений
+        if body.get('action') == 'ping':
+            api_key = os.environ.get('OPENROUTER_API_KEY', '')
+            if not api_key:
+                return err('OPENROUTER_API_KEY missing')
+            print('[GEN] ping test...', flush=True)
+            resp = requests.post(
+                OPENROUTER_URL,
+                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json', 'HTTP-Referer': 'https://poehali.dev'},
+                json={'model': MODEL, 'messages': [{'role': 'user', 'content': 'Say "OK" and nothing else.'}], 'max_tokens': 10},
+                timeout=30,
+            )
+            print(f'[GEN] ping status={resp.status_code} body={resp.text[:300]}', flush=True)
+            return {'statusCode': 200, 'headers': H, 'body': json.dumps({'ping_status': resp.status_code, 'ping_body': resp.json()})}
+
         if not src_url or not tgt_url:
             return err('source_face_url and target_image_url required', 400)
 
