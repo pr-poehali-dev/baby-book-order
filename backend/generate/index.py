@@ -15,7 +15,7 @@ CORS = {
 H = {**CORS, 'Content-Type': 'application/json'}
 
 OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-MODEL = 'google/gemini-2.0-flash-exp:free'
+MODEL = 'google/gemini-3.1-flash-image'
 
 
 def err(msg, code=500):
@@ -103,11 +103,14 @@ def handler(event: dict, context) -> dict:
         timeout=120,
     )
 
+    print(f'[GEN] OpenRouter status: {resp.status_code}', flush=True)
     if resp.status_code != 200:
+        print(f'[GEN] OpenRouter error body: {resp.text[:500]}', flush=True)
         return err(f'OpenRouter error {resp.status_code}: {resp.text[:300]}')
 
     data = resp.json()
     print(f'[GEN] response keys: {list(data.keys())}', flush=True)
+    print(f'[GEN] full response: {json.dumps(data)[:800]}', flush=True)
 
     # Извлекаем сгенерированное изображение из ответа
     result_bytes = None
