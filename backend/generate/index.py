@@ -127,8 +127,8 @@ def handler(event: dict, context) -> dict:
         tgt_bytes = requests.get(tgt_url, timeout=30).content
         print(f'[GEN] tgt downloaded: {len(tgt_bytes)} bytes', flush=True)
 
-        src_b64 = compress_to_base64(src_bytes, max_size=512)
-        tgt_b64 = compress_to_base64(tgt_bytes, max_size=512)
+        src_b64 = compress_to_base64(src_bytes, max_size=384)
+        tgt_b64 = compress_to_base64(tgt_bytes, max_size=384)
 
         prompt = (
             "You are a children's book illustrator. I will give you two images:\n"
