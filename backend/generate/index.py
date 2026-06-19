@@ -55,7 +55,7 @@ def handler(event: dict, context) -> dict:
             print('[GEN] ping_image test...', flush=True)
             resp = requests.post(
                 OPENROUTER_URL,
-                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json', 'HTTP-Referer': 'https://poehali.dev'},
+                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json', 'HTTP-Referer': 'https://poehali.dev', 'X-Title': 'Yarkaya Fotokniga'},
                 json={
                     'model': MODEL,
                     'messages': [{'role': 'user', 'content': 'Draw a simple cute cartoon cat. Output only the image.'}],
@@ -167,7 +167,7 @@ def handler(event: dict, context) -> dict:
                 'Authorization': f'Bearer {api_key}',
                 'Content-Type': 'application/json',
                 'HTTP-Referer': 'https://poehali.dev',
-                'X-Title': 'Яркая фотокнига',
+                'X-Title': 'Yarkaya Fotokniga',
             },
             json=payload,
             timeout=150,
