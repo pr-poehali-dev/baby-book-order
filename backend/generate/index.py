@@ -66,23 +66,33 @@ def handler(event: dict, context) -> dict:
             )
             print(f'[GEN] ping_image status={resp.status_code}', flush=True)
             data = resp.json()
-            print(f'[GEN] ping_image response={json.dumps(data)[:1000]}', flush=True)
+            print(f'[GEN] ping_image response={json.dumps(data)[:1500]}', flush=True)
             # Проверяем наличие изображения в ответе
             image_found = False
+            image_prefix = ''
             choices = data.get('choices', [])
             if choices:
-                content = choices[0].get('message', {}).get('content', '')
-                if isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get('type') == 'image_url':
-                            image_found = True
-                            break
-                elif isinstance(content, str) and content.startswith('data:image'):
+                message = choices[0].get('message', {})
+                images = message.get('images') or []
+                if images:
                     image_found = True
+                    image_prefix = str(images[0])[:60]
+                else:
+                    content = message.get('content', '')
+                    if isinstance(content, list):
+                        for part in content:
+                            if isinstance(part, dict) and part.get('type') == 'image_url':
+                                image_found = True
+                                image_prefix = part['image_url'].get('url', '')[:60]
+                                break
+                    elif isinstance(content, str) and content.startswith('data:image'):
+                        image_found = True
+                        image_prefix = content[:60]
             return {'statusCode': 200, 'headers': H, 'body': json.dumps({
                 'status': resp.status_code,
                 'image_found': image_found,
-                'response_preview': json.dumps(data)[:800],
+                'image_prefix': image_prefix,
+                'message_keys': list(choices[0].get('message', {}).keys()) if choices else [],
             })}
 
         # Тестовый пинг модели без изображений
@@ -172,23 +182,45 @@ def handler(event: dict, context) -> dict:
         print(f'[GEN] response: {json.dumps(data)[:1000]}', flush=True)
 
         # Извлекаем изображение из ответа
+        # OpenRouter возвращает картинку в message.images[] или внутри content как image_url
         result_bytes = None
         choices = data.get('choices', [])
         if choices:
-            content = choices[0].get('message', {}).get('content', '')
-            if isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict) and part.get('type') == 'image_url':
-                        img_url = part['image_url'].get('url', '')
-                        if img_url.startswith('data:'):
-                            result_bytes = base64.b64decode(img_url.split(',', 1)[1])
-                        elif img_url.startswith('http'):
-                            result_bytes = requests.get(img_url, timeout=30).content
-                        break
-            elif isinstance(content, str) and content.startswith('data:image'):
-                result_bytes = base64.b64decode(content.split(',', 1)[1])
+            message = choices[0].get('message', {})
+
+            # Вариант 1: message.images[] — основной формат OpenRouter для image-моделей
+            images = message.get('images') or []
+            if images:
+                img = images[0]
+                if isinstance(img, str):
+                    if img.startswith('data:'):
+                        result_bytes = base64.b64decode(img.split(',', 1)[1])
+                    elif img.startswith('http'):
+                        result_bytes = requests.get(img, timeout=30).content
+                elif isinstance(img, dict):
+                    url = img.get('url', '')
+                    if url.startswith('data:'):
+                        result_bytes = base64.b64decode(url.split(',', 1)[1])
+                    elif url.startswith('http'):
+                        result_bytes = requests.get(url, timeout=30).content
+
+            # Вариант 2: content как список с image_url
+            if not result_bytes:
+                content = message.get('content', '')
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get('type') == 'image_url':
+                            img_url = part['image_url'].get('url', '')
+                            if img_url.startswith('data:'):
+                                result_bytes = base64.b64decode(img_url.split(',', 1)[1])
+                            elif img_url.startswith('http'):
+                                result_bytes = requests.get(img_url, timeout=30).content
+                            break
+                elif isinstance(content, str) and content.startswith('data:image'):
+                    result_bytes = base64.b64decode(content.split(',', 1)[1])
 
         if not result_bytes:
+            print(f'[GEN] no image, full response: {json.dumps(data)[:1500]}', flush=True)
             return err('Gemini не вернул изображение')
 
         # Сохраняем в S3
