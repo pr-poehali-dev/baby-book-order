@@ -107,6 +107,17 @@ export default function BookPreview() {
   const previewPages = pages.slice(0, 3);
   const labels = ['Обложка', 'Разворот 1', 'Разворот 2'];
 
+  const PageList = ({ items }: { items: string[] }) => (
+    <div className="space-y-4 mb-8">
+      {items.map((src, i) => (
+        <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
+          <img src={src} alt={labels[i]} className="w-full object-contain" />
+          <p className="text-center text-xs font-semibold text-muted-foreground py-2 border-t border-border">{labels[i]}</p>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="min-h-screen flex flex-col">
 
@@ -175,17 +186,7 @@ export default function BookPreview() {
               </div>
             )}
 
-            {/* Страницы появляются по мере генерации */}
-            {previewPages.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {previewPages.map((src, i) => (
-                  <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
-                    <img src={src} alt={labels[i]} className="w-full aspect-square object-cover" />
-                    <p className="text-center text-xs font-semibold text-muted-foreground py-2">{labels[i]}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+            {previewPages.length > 0 && <PageList items={previewPages} />}
           </div>
         )}
 
@@ -200,14 +201,7 @@ export default function BookPreview() {
               <p className="text-muted-foreground">«{order?.templateTitle}» · предпросмотр</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-              {previewPages.map((src, i) => (
-                <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
-                  <img src={src} alt={labels[i]} className="w-full aspect-square object-cover" />
-                  <p className="text-center text-xs font-semibold text-muted-foreground py-2">{labels[i]}</p>
-                </div>
-              ))}
-            </div>
+            <PageList items={previewPages} />
 
             <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
