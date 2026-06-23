@@ -212,25 +212,36 @@ export default function BookPreview() {
                         </div>
                       )}
                     </div>
-                    <div className="flex items-center justify-between px-4 py-2 border-t border-border">
+                    <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20">
                       <p className="text-xs font-semibold text-muted-foreground">{labels[i]}</p>
                       <button
                         onClick={() => handleRegen(i)}
                         disabled={!canRegen || loading}
-                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
+                        className={`flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-full transition-all ${
                           canRegen && !loading
-                            ? 'border-primary/40 text-primary hover:bg-primary/5'
-                            : 'border-border text-muted-foreground cursor-not-allowed opacity-50'
+                            ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm'
+                            : 'bg-muted text-muted-foreground cursor-not-allowed'
                         }`}
                       >
-                        <Icon name="RefreshCw" size={12} />
-                        {canRegen ? `Перегенерировать · осталось ${attemptsLeft}` : 'Лимит исчерпан'}
+                        <Icon name="RefreshCw" size={14} className={loading ? 'animate-spin' : ''} />
+                        {canRegen ? `Перегенерировать (осталось ${attemptsLeft})` : 'Лимит исчерпан'}
                       </button>
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            {/* Плашка об остальных разворотах */}
+            {totalPages > 3 && (
+              <div className="flex items-start gap-3 bg-muted/50 border border-border rounded-2xl px-5 py-4 mb-8">
+                <Icon name="Lock" size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold">Ещё {totalPages - 3} {totalPages - 3 === 1 ? 'разворот доступен' : 'разворота доступны'} после оформления заказа</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Все страницы книги откроются сразу после оплаты</p>
+                </div>
+              </div>
+            )}
 
             {/* CTA */}
             <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
