@@ -5,7 +5,7 @@ import Icon from '@/components/ui/icon';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { toast } from 'sonner';
-import { createOrder, fetchTemplate } from '@/lib/api';
+import { createOrder, fetchTemplate, faceSwap } from '@/lib/api';
 
 interface OrderData {
   photoUrl: string;
@@ -21,6 +21,8 @@ interface OrderData {
 
 type Stage = 'generate' | 'done' | 'error';
 
+const MAX_REGENS = 2;
+
 export default function BookPreview() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -28,9 +30,11 @@ export default function BookPreview() {
 
   const [order, setOrder] = useState<OrderData | null>(null);
   const [stage, setStage] = useState<Stage>('generate');
-  const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [pages, setPages] = useState<string[]>([]);
+  const [sources, setSources] = useState<string[]>([]); // оригинальные URL шаблона
+  const [regenCount, setRegenCount] = useState<number[]>([]); // счётчик попыток на страницу
+  const [regenLoading, setRegenLoading] = useState<boolean[]>([]); // спиннер на страницу
   const [adding, setAdding] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const started = useRef(false);
@@ -61,25 +65,18 @@ export default function BookPreview() {
         const full = await fetchTemplate(order.templateId);
         const templatePages = full.pages?.filter((p: { image_url?: string }) => p.image_url) || [];
 
-        const sources: string[] = templatePages.length > 0
+        const srcs: string[] = templatePages.length > 0
           ? templatePages.map((p: { image_url: string }) => p.image_url)
           : [full.cover_url || order.photoUrl];
 
-        setTotalPages(sources.length);
-
-        // Показываем оригинальные страницы шаблона без генерации
-        const resultPages: string[] = sources;
-        setPages(resultPages);
+        setTotalPages(srcs.length);
+        setSources(srcs);
+        setPages(srcs);
+        setRegenCount(new Array(srcs.length).fill(0));
+        setRegenLoading(new Array(srcs.length).fill(false));
 
         setStage('done');
         sessionStorage.removeItem('bookOrder');
-        sessionStorage.setItem('bookPreview', JSON.stringify({
-          pages: resultPages,
-          templateId: order.templateId,
-          templateTitle: order.templateTitle,
-          templatePrice: order.templatePrice,
-          childName: order.childName,
-        }));
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         setErrorMsg(msg);
@@ -87,6 +84,22 @@ export default function BookPreview() {
       }
     })();
   }, [order]);
+
+  const handleRegen = async (pageIdx: number) => {
+    if (!order) return;
+    if (regenCount[pageIdx] >= MAX_REGENS) return;
+
+    setRegenLoading(prev => { const a = [...prev]; a[pageIdx] = true; return a; });
+    try {
+      const newUrl = await faceSwap(order.photoUrl, sources[pageIdx]);
+      setPages(prev => { const a = [...prev]; a[pageIdx] = newUrl; return a; });
+      setRegenCount(prev => { const a = [...prev]; a[pageIdx]++; return a; });
+    } catch {
+      toast.error('Не удалось перегенерировать страницу');
+    } finally {
+      setRegenLoading(prev => { const a = [...prev]; a[pageIdx] = false; return a; });
+    }
+  };
 
   const handleAddToCart = async () => {
     if (!user) { navigate('/login'); return; }
@@ -104,19 +117,9 @@ export default function BookPreview() {
     }
   };
 
+  // Показываем клиенту только обложку + первые 2 разворота
   const previewPages = pages.slice(0, 3);
   const labels = ['Обложка', 'Разворот 1', 'Разворот 2'];
-
-  const PageList = ({ items }: { items: string[] }) => (
-    <div className="space-y-4 mb-8">
-      {items.map((src, i) => (
-        <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
-          <img src={src} alt={labels[i]} className="w-full object-contain" />
-          <p className="text-center text-xs font-semibold text-muted-foreground py-2 border-t border-border">{labels[i]}</p>
-        </div>
-      ))}
-    </div>
-  );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -159,34 +162,21 @@ export default function BookPreview() {
       {/* КОНТЕНТ */}
       <main className="flex-1 container py-10 max-w-3xl mx-auto">
 
-        {/* Генерация */}
+        {/* Загрузка */}
         {stage === 'generate' && (
-          <div className="text-center space-y-8">
+          <div className="text-center space-y-6 py-16">
             <div className="animate-wobble text-6xl">🪄</div>
-            <div>
-              <h1 className="font-display font-extrabold text-3xl mb-2">
-                Создаём книгу для {order?.childName}...
-              </h1>
-              <p className="text-muted-foreground">Это займёт около минуты</p>
-            </div>
-
-            {/* Прогресс страниц */}
+            <h1 className="font-display font-extrabold text-3xl">
+              Создаём книгу для {order?.childName}...
+            </h1>
+            <p className="text-muted-foreground">Это займёт несколько секунд</p>
             {totalPages > 0 && (
               <div className="max-w-xs mx-auto space-y-2">
-                <div className="flex justify-between text-sm text-muted-foreground mb-1">
-                  <span>Страниц обработано</span>
-                  <span>{currentPage} / {totalPages}</span>
-                </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all duration-500"
-                    style={{ width: `${(currentPage / totalPages) * 100}%` }}
-                  />
+                  <div className="h-full bg-primary rounded-full animate-pulse w-1/2" />
                 </div>
               </div>
             )}
-
-            {previewPages.length > 0 && <PageList items={previewPages} />}
           </div>
         )}
 
@@ -201,8 +191,48 @@ export default function BookPreview() {
               <p className="text-muted-foreground">«{order?.templateTitle}» · предпросмотр</p>
             </div>
 
-            <PageList items={previewPages} />
+            {/* Страницы */}
+            <div className="space-y-6 mb-8">
+              {previewPages.map((src, i) => {
+                const count = regenCount[i] ?? 0;
+                const loading = regenLoading[i] ?? false;
+                const attemptsLeft = MAX_REGENS - count;
+                const canRegen = attemptsLeft > 0;
 
+                return (
+                  <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
+                    <div className="relative">
+                      <img src={src} alt={labels[i]} className="w-full object-contain" />
+                      {loading && (
+                        <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
+                          <div className="text-center space-y-2">
+                            <Icon name="Loader2" size={32} className="animate-spin text-primary mx-auto" />
+                            <p className="text-sm font-semibold">Перегенерируем...</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between px-4 py-2 border-t border-border">
+                      <p className="text-xs font-semibold text-muted-foreground">{labels[i]}</p>
+                      <button
+                        onClick={() => handleRegen(i)}
+                        disabled={!canRegen || loading}
+                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
+                          canRegen && !loading
+                            ? 'border-primary/40 text-primary hover:bg-primary/5'
+                            : 'border-border text-muted-foreground cursor-not-allowed opacity-50'
+                        }`}
+                      >
+                        <Icon name="RefreshCw" size={12} />
+                        {canRegen ? `Перегенерировать · осталось ${attemptsLeft}` : 'Лимит исчерпан'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* CTA */}
             <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <p className="font-bold text-lg">Полная книга — {order?.templatePrice} ₽</p>
@@ -224,7 +254,7 @@ export default function BookPreview() {
 
         {/* Ошибка */}
         {stage === 'error' && (
-          <div className="text-center space-y-4">
+          <div className="text-center space-y-4 py-16">
             <div className="text-5xl">😔</div>
             <h1 className="font-display font-bold text-2xl">Что-то пошло не так</h1>
             <p className="text-muted-foreground text-sm">{errorMsg}</p>
