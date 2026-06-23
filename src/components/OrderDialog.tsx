@@ -123,26 +123,44 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
             <div>
               <Label className="font-bold mb-2 block">Цвет волос</Label>
               <div className="flex flex-wrap gap-2">
-                {['Блонд', 'Русый', 'Брюнет', 'Шатен', 'Рыжий'].map((v) => (
+                {([
+                  { label: 'Блонд',  dot: '#F5E6A3' },
+                  { label: 'Русый',  dot: '#C8A96E' },
+                  { label: 'Брюнет', dot: '#3B2314' },
+                  { label: 'Шатен',  dot: '#7B4A2D' },
+                  { label: 'Рыжий',  dot: '#C1440E' },
+                ] as { label: string; dot: string }[]).map(({ label, dot }) => (
                   <button
-                    key={v}
+                    key={label}
                     type="button"
-                    onClick={() => setHairColor(v)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${hairColor === v ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-primary/50'}`}
-                  >{v}</button>
+                    onClick={() => setHairColor(label)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${hairColor === label ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-primary/50'}`}
+                  >
+                    <span className="w-3.5 h-3.5 rounded-full border border-black/10 flex-shrink-0" style={{ backgroundColor: dot }} />
+                    {label}
+                  </button>
                 ))}
               </div>
             </div>
             <div>
               <Label className="font-bold mb-2 block">Цвет глаз</Label>
               <div className="flex flex-wrap gap-2">
-                {['Карие', 'Голубые', 'Зелёные', 'Серые', 'Другой'].map((v) => (
+                {([
+                  { label: 'Карие',   dot: '#6B3A2A' },
+                  { label: 'Голубые', dot: '#7BB8D4' },
+                  { label: 'Зелёные', dot: '#4A8C5C' },
+                  { label: 'Серые',   dot: '#9AA5B1' },
+                  { label: 'Другой',  dot: '#D1B3E8' },
+                ] as { label: string; dot: string }[]).map(({ label, dot }) => (
                   <button
-                    key={v}
+                    key={label}
                     type="button"
-                    onClick={() => setEyeColor(v)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${eyeColor === v ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-primary/50'}`}
-                  >{v}</button>
+                    onClick={() => setEyeColor(label)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${eyeColor === label ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-primary/50'}`}
+                  >
+                    <span className="w-3.5 h-3.5 rounded-full border border-black/10 flex-shrink-0" style={{ backgroundColor: dot }} />
+                    {label}
+                  </button>
                 ))}
               </div>
             </div>
