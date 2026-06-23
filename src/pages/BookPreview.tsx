@@ -1,42 +1,103 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { toast } from 'sonner';
+import { createOrder, fetchTemplate, faceSwap } from '@/lib/api';
 
-interface PreviewData {
-  pages: string[];
+interface OrderData {
+  photoUrl: string;
   templateId: number;
   templateTitle: string;
   templatePrice: number;
   childName: string;
+  childAge: number;
+  hairColor: string;
+  eyeColor: string;
+  email: string;
 }
+
+type Stage = 'generate' | 'done' | 'error';
 
 export default function BookPreview() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { items, addToCart } = useCart();
-  const [data, setData] = useState<PreviewData | null>(null);
+
+  const [order, setOrder] = useState<OrderData | null>(null);
+  const [stage, setStage] = useState<Stage>('generate');
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [pages, setPages] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const started = useRef(false);
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('bookPreview');
+    const raw = sessionStorage.getItem('bookOrder');
     if (!raw) { navigate('/'); return; }
-    try { setData(JSON.parse(raw)); } catch { navigate('/'); }
+    try {
+      const data: OrderData = JSON.parse(raw);
+      setOrder(data);
+    } catch { navigate('/'); }
   }, [navigate]);
 
-  if (!data) return null;
+  useEffect(() => {
+    if (!order || started.current) return;
+    started.current = true;
 
-  const previewPages = data.pages.slice(0, 3);
-  const labels = ['Обложка', 'Разворот 1', 'Разворот 2'];
+    (async () => {
+      try {
+        await createOrder({
+          template_id: order.templateId,
+          child_name: order.childName,
+          child_age: order.childAge,
+          child_photo_url: order.photoUrl,
+          customer_email: order.email,
+        });
+
+        const full = await fetchTemplate(order.templateId);
+        const templatePages = full.pages?.filter((p: { image_url?: string }) => p.image_url) || [];
+
+        const sources: string[] = templatePages.length > 0
+          ? templatePages.map((p: { image_url: string }) => p.image_url)
+          : [full.cover_url || order.photoUrl];
+
+        setTotalPages(sources.length);
+
+        const resultPages: string[] = [];
+        for (let i = 0; i < sources.length; i++) {
+          setCurrentPage(i + 1);
+          const swapped = await faceSwap(order.photoUrl, sources[i]);
+          resultPages.push(swapped);
+          setPages([...resultPages]);
+        }
+
+        setStage('done');
+        sessionStorage.removeItem('bookOrder');
+        sessionStorage.setItem('bookPreview', JSON.stringify({
+          pages: resultPages,
+          templateId: order.templateId,
+          templateTitle: order.templateTitle,
+          templatePrice: order.templatePrice,
+          childName: order.childName,
+        }));
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setErrorMsg(msg);
+        setStage('error');
+      }
+    })();
+  }, [order]);
 
   const handleAddToCart = async () => {
     if (!user) { navigate('/login'); return; }
+    if (!order) return;
     setAdding(true);
     try {
-      await addToCart(data.templateId, data.childName, data.pages);
+      await addToCart(order.templateId, order.childName, pages);
       toast.success('Книга добавлена в корзину!');
       sessionStorage.removeItem('bookPreview');
       navigate('/cart');
@@ -46,6 +107,9 @@ export default function BookPreview() {
       setAdding(false);
     }
   };
+
+  const previewPages = pages.slice(0, 3);
+  const labels = ['Обложка', 'Разворот 1', 'Разворот 2'];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -87,41 +151,99 @@ export default function BookPreview() {
 
       {/* КОНТЕНТ */}
       <main className="flex-1 container py-10 max-w-3xl mx-auto">
-        <div className="text-center mb-8">
-          <div className="text-4xl mb-3">🎉</div>
-          <h1 className="font-display font-extrabold text-3xl mb-2">
-            Книга для {data.childName} готова!
-          </h1>
-          <p className="text-muted-foreground">«{data.templateTitle}» · предпросмотр</p>
-        </div>
 
-        {/* Превью страниц */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          {previewPages.map((src, i) => (
-            <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
-              <img src={src} alt={labels[i]} className="w-full aspect-square object-cover" />
-              <p className="text-center text-xs font-semibold text-muted-foreground py-2">{labels[i]}</p>
+        {/* Генерация */}
+        {stage === 'generate' && (
+          <div className="text-center space-y-8">
+            <div className="animate-wobble text-6xl">🪄</div>
+            <div>
+              <h1 className="font-display font-extrabold text-3xl mb-2">
+                Создаём книгу для {order?.childName}...
+              </h1>
+              <p className="text-muted-foreground">Это займёт около минуты</p>
             </div>
-          ))}
-        </div>
 
-        {/* Блок с ценой и CTA */}
-        <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            <p className="font-bold text-lg">Полная книга — {data.templatePrice} ₽</p>
-            <p className="text-sm text-muted-foreground">Печать + доставка включены</p>
+            {/* Прогресс страниц */}
+            {totalPages > 0 && (
+              <div className="max-w-xs mx-auto space-y-2">
+                <div className="flex justify-between text-sm text-muted-foreground mb-1">
+                  <span>Страниц обработано</span>
+                  <span>{currentPage} / {totalPages}</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    style={{ width: `${(currentPage / totalPages) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Страницы появляются по мере генерации */}
+            {previewPages.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {previewPages.map((src, i) => (
+                  <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
+                    <img src={src} alt={labels[i]} className="w-full aspect-square object-cover" />
+                    <p className="text-center text-xs font-semibold text-muted-foreground py-2">{labels[i]}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <Button onClick={handleAddToCart} disabled={adding} size="lg" className="rounded-full font-bold px-8 gap-2">
-            {adding ? <Icon name="Loader2" size={18} className="animate-spin" /> : <Icon name="ShoppingCart" size={18} />}
-            {adding ? 'Добавляем...' : 'В корзину'}
-          </Button>
-        </div>
+        )}
 
-        <div className="text-center mt-4">
-          <button onClick={() => navigate('/')} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← Вернуться к каталогу
-          </button>
-        </div>
+        {/* Готово */}
+        {stage === 'done' && (
+          <>
+            <div className="text-center mb-8">
+              <div className="text-4xl mb-3">🎉</div>
+              <h1 className="font-display font-extrabold text-3xl mb-2">
+                Книга для {order?.childName} готова!
+              </h1>
+              <p className="text-muted-foreground">«{order?.templateTitle}» · предпросмотр</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+              {previewPages.map((src, i) => (
+                <div key={i} className="rounded-2xl overflow-hidden border border-border shadow-sm">
+                  <img src={src} alt={labels[i]} className="w-full aspect-square object-cover" />
+                  <p className="text-center text-xs font-semibold text-muted-foreground py-2">{labels[i]}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-primary/5 border border-primary/20 rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div>
+                <p className="font-bold text-lg">Полная книга — {order?.templatePrice} ₽</p>
+                <p className="text-sm text-muted-foreground">Печать + доставка включены</p>
+              </div>
+              <Button onClick={handleAddToCart} disabled={adding} size="lg" className="rounded-full font-bold px-8 gap-2">
+                {adding ? <Icon name="Loader2" size={18} className="animate-spin" /> : <Icon name="ShoppingCart" size={18} />}
+                {adding ? 'Добавляем...' : 'В корзину'}
+              </Button>
+            </div>
+
+            <div className="text-center mt-4">
+              <button onClick={() => navigate('/')} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                ← Вернуться к каталогу
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Ошибка */}
+        {stage === 'error' && (
+          <div className="text-center space-y-4">
+            <div className="text-5xl">😔</div>
+            <h1 className="font-display font-bold text-2xl">Что-то пошло не так</h1>
+            <p className="text-muted-foreground text-sm">{errorMsg}</p>
+            <Button onClick={() => navigate('/')} variant="outline" className="rounded-full">
+              ← Вернуться к каталогу
+            </Button>
+          </div>
+        )}
+
       </main>
 
       {/* ФУТЕР */}
