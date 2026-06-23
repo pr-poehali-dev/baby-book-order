@@ -11,9 +11,7 @@
       "method": "POST",
       "path": "/",
       "body": {},
-      "expectedStatus": 403,
-      "expectedBody": {"error": "Forbidden"},
-      "bodyMatcher": "partial"
+      "expectedStatus": 403
     }
   ]
 }

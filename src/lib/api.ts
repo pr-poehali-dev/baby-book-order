@@ -6,6 +6,8 @@ export const API = {
   auth: 'https://functions.poehali.dev/7ec8b743-919f-451c-a25c-728e9fb2e156',
   profile: 'https://functions.poehali.dev/be831ec0-2776-496b-9a79-b9cd76aa3f90',
   cart: 'https://functions.poehali.dev/33d547bf-4dab-4e3b-9c8f-084b4f2b5a2b',
+  print_settings: 'https://functions.poehali.dev/c0466e44-d22a-4d05-87a3-ddc5ce94a10b',
+  export_book: 'https://functions.poehali.dev/1767c0de-d907-4318-a2e7-4f5f5a65777d',
 };
 
 export function getSessionId(): string {

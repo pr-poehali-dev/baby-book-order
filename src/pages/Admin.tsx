@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
 import {
+  API,
   Template,
   TemplatePage,
   fetchTemplates,
@@ -16,7 +17,76 @@ import {
   addPage,
   updatePageFace,
   uploadFile,
+  getSessionId,
 } from '@/lib/api';
+
+interface PrintSetting { mm_w: number; mm_h: number; dpi: number }
+interface PrintSettings { cover: PrintSetting; spread: PrintSetting }
+
+const PrintSettingsPanel = () => {
+  const [settings, setSettings] = useState<PrintSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(API.print_settings).then(r => r.json()).then(setSettings);
+  }, []);
+
+  const save = async () => {
+    if (!settings) return;
+    setSaving(true);
+    const res = await fetch(API.print_settings, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getSessionId()}` },
+      body: JSON.stringify(settings),
+    });
+    setSaving(false);
+    if (res.ok) toast.success('Настройки печати сохранены');
+    else toast.error('Ошибка сохранения');
+  };
+
+  const upd = (type: 'cover' | 'spread', field: keyof PrintSetting, val: number) =>
+    setSettings(s => s ? { ...s, [type]: { ...s[type], [field]: val } } : s);
+
+  if (!settings) return <div className="text-xs text-muted-foreground py-2">Загрузка...</div>;
+
+  return (
+    <div className="bg-card border border-border rounded-2xl p-4 space-y-4">
+      <div className="flex items-center gap-2 font-bold text-sm">
+        <Icon name="Printer" size={16} className="text-primary" /> Настройки печати
+      </div>
+
+      {(['cover', 'spread'] as const).map(type => (
+        <div key={type} className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            {type === 'cover' ? 'Обложка' : 'Разворот'}
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <Label className="text-xs">Ш, мм</Label>
+              <Input type="number" value={settings[type].mm_w} onChange={e => upd(type, 'mm_w', +e.target.value)} className="rounded-lg h-8 text-sm mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs">В, мм</Label>
+              <Input type="number" value={settings[type].mm_h} onChange={e => upd(type, 'mm_h', +e.target.value)} className="rounded-lg h-8 text-sm mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs">DPI</Label>
+              <Input type="number" value={settings[type].dpi} onChange={e => upd(type, 'dpi', +e.target.value)} className="rounded-lg h-8 text-sm mt-0.5" />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            → {Math.round(settings[type].mm_w * settings[type].dpi / 25.4)} × {Math.round(settings[type].mm_h * settings[type].dpi / 25.4)} px
+          </p>
+        </div>
+      ))}
+
+      <Button onClick={save} disabled={saving} size="sm" className="w-full rounded-full font-bold">
+        {saving ? <Icon name="Loader2" size={14} className="animate-spin" /> : <Icon name="Save" size={14} />}
+        Сохранить
+      </Button>
+    </div>
+  );
+};
 
 const FaceMarker = ({ page, onSave }: { page: TemplatePage; onSave: () => void }) => {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -179,6 +249,7 @@ const Admin = () => {
               </div>
             </button>
           ))}
+          <PrintSettingsPanel />
         </aside>
 
         <main>

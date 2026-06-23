@@ -1,14 +1,39 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
+import { API, getSessionId } from '@/lib/api';
+import { CartItem } from '@/context/CartContext';
+import { toast } from 'sonner';
+
+async function downloadBookZip(item: CartItem) {
+  const bookName = `${item.child_name}_${item.template.title}`;
+  const res = await fetch(API.export_book, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getSessionId()}` },
+    body: JSON.stringify({ urls: item.preview_urls, book_name: bookName }),
+  });
+  if (!res.ok) { toast.error('Ошибка выгрузки'); return; }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${bookName}.zip`; a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function Cart() {
   const { user, loading } = useAuth();
   const { items, total, removeFromCart, refresh } = useCart();
   const navigate = useNavigate();
+  const [exportingId, setExportingId] = useState<number | null>(null);
+
+  const handleExport = async (item: CartItem) => {
+    setExportingId(item.id);
+    await downloadBookZip(item);
+    setExportingId(null);
+  };
 
   useEffect(() => {
     if (!loading && !user) navigate('/login');
@@ -58,14 +83,30 @@ export default function Cart() {
                     <p className="text-sm text-muted-foreground">Для: {item.child_name}</p>
                     <p className="text-sm font-bold text-primary mt-1">{item.template.price}₽</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-destructive flex-shrink-0"
-                    onClick={() => removeFromCart(item.id)}
-                  >
-                    <Icon name="Trash2" size={18} />
-                  </Button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {user?.role === 'admin' && (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        title="Выгрузить для печати (ZIP)"
+                        disabled={exportingId === item.id}
+                        onClick={() => handleExport(item)}
+                        className="text-muted-foreground"
+                      >
+                        {exportingId === item.id
+                          ? <Icon name="Loader2" size={16} className="animate-spin" />
+                          : <Icon name="Download" size={16} />}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => removeFromCart(item.id)}
+                    >
+                      <Icon name="Trash2" size={18} />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

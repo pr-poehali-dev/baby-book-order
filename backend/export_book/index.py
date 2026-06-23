@@ -14,8 +14,10 @@ import psycopg2
 from PIL import Image
 
 
+SCHEMA = os.environ.get('MAIN_DB_SCHEMA', 't_p50926286_baby_book_order')
+
 def get_conn():
-    return psycopg2.connect(os.environ['DATABASE_URL'])
+    return psycopg2.connect(os.environ['DATABASE_URL'], options=f'-c search_path={SCHEMA}')
 
 
 def mm_to_px(mm: int, dpi: int) -> int:
@@ -45,9 +47,7 @@ def handler(event: dict, context) -> dict:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT u.role FROM t_p50926286_baby_book_order.sessions s
-           JOIN t_p50926286_baby_book_order.users u ON u.id = s.user_id
-           WHERE s.token = %s""",
+        "SELECT u.role FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()",
         (token,)
     )
     row = cur.fetchone()
@@ -56,7 +56,7 @@ def handler(event: dict, context) -> dict:
         return {'statusCode': 403, 'headers': cors(), 'body': json.dumps({'error': 'Forbidden'})}
 
     # Читаем настройки печати из БД
-    cur.execute("SELECT key, value_mm_w, value_mm_h, dpi FROM t_p50926286_baby_book_order.print_settings")
+    cur.execute("SELECT key, value_mm_w, value_mm_h, dpi FROM print_settings")
     settings = {r[0]: {'mm_w': r[1], 'mm_h': r[2], 'dpi': r[3]} for r in cur.fetchall()}
     conn.close()
 
