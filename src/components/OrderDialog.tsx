@@ -15,6 +15,8 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
   const [stage, setStage] = useState<ProcessStage>('upload');
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
+  const [hairColor, setHairColor] = useState('');
+  const [eyeColor, setEyeColor] = useState('');
   const [email, setEmail] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState('');
@@ -32,8 +34,8 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
   };
 
   const submit = async () => {
-    if (!photo || !name || !age) {
-      toast.error('Загрузите фото, укажите имя и возраст');
+    if (!photo || !name || !age || !hairColor || !eyeColor) {
+      toast.error('Заполните все поля и загрузите фото');
       return;
     }
     setStep('processing');
@@ -80,7 +82,7 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
   };
 
   const reset = () => {
-    setStep('form'); setStage('upload'); setName(''); setAge(''); setEmail('');
+    setStep('form'); setStage('upload'); setName(''); setAge(''); setHairColor(''); setEyeColor(''); setEmail('');
     setPhoto(null); setPhotoPreview(''); setPages([]); setGeneratedUrl(''); setCurrentPage(0);
     onClose();
   };
@@ -116,6 +118,32 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
               <div>
                 <Label className="font-bold mb-2 block">Возраст</Label>
                 <Input type="number" value={age} onChange={(e) => setAge(e.target.value)} placeholder="5" className="rounded-xl" />
+              </div>
+            </div>
+            <div>
+              <Label className="font-bold mb-2 block">Цвет волос</Label>
+              <div className="flex flex-wrap gap-2">
+                {['Блонд', 'Русый', 'Брюнет', 'Шатен', 'Рыжий'].map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setHairColor(v)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${hairColor === v ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-primary/50'}`}
+                  >{v}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label className="font-bold mb-2 block">Цвет глаз</Label>
+              <div className="flex flex-wrap gap-2">
+                {['Карие', 'Голубые', 'Зелёные', 'Серые', 'Другой'].map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setEyeColor(v)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${eyeColor === v ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-primary/50'}`}
+                  >{v}</button>
+                ))}
               </div>
             </div>
             <div>
