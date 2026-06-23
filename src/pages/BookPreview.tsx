@@ -5,7 +5,7 @@ import Icon from '@/components/ui/icon';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { toast } from 'sonner';
-import { createOrder, fetchTemplate, faceSwap } from '@/lib/api';
+import { createOrder, fetchTemplate } from '@/lib/api';
 
 interface OrderData {
   photoUrl: string;
@@ -67,13 +67,9 @@ export default function BookPreview() {
 
         setTotalPages(sources.length);
 
-        const resultPages: string[] = [];
-        for (let i = 0; i < sources.length; i++) {
-          setCurrentPage(i + 1);
-          const swapped = await faceSwap(order.photoUrl, sources[i]);
-          resultPages.push(swapped);
-          setPages([...resultPages]);
-        }
+        // Показываем оригинальные страницы шаблона без генерации
+        const resultPages: string[] = sources;
+        setPages(resultPages);
 
         setStage('done');
         sessionStorage.removeItem('bookOrder');
