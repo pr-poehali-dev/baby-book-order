@@ -8,6 +8,7 @@ export const API = {
   cart: 'https://functions.poehali.dev/33d547bf-4dab-4e3b-9c8f-084b4f2b5a2b',
   print_settings: 'https://functions.poehali.dev/c0466e44-d22a-4d05-87a3-ddc5ce94a10b',
   export_book: 'https://functions.poehali.dev/1767c0de-d907-4318-a2e7-4f5f5a65777d',
+  products: 'https://functions.poehali.dev/7c381b83-c6be-49ef-bf93-9345882f2f5c',
 };
 
 export function getSessionId(): string {

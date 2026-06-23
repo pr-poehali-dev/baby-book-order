@@ -170,10 +170,155 @@ const FaceMarker = ({ page, onSave }: { page: TemplatePage; onSave: () => void }
   );
 };
 
+interface Product {
+  id: number; name: string; size_cm: string;
+  cover_mm_w: number; cover_mm_h: number;
+  spread_mm_w: number; spread_mm_h: number;
+  dpi: number; price_modifier: number; is_active: boolean;
+  template_ids: number[];
+}
+
+const EMPTY_PRODUCT: Omit<Product, 'id' | 'template_ids' | 'is_active'> = {
+  name: '', size_cm: '', cover_mm_w: 468, cover_mm_h: 246,
+  spread_mm_w: 406, spread_mm_h: 203, dpi: 300, price_modifier: 0,
+};
+
+const ProductsPanel = ({ templates }: { templates: Template[] }) => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [editing, setEditing] = useState<Partial<Product> | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = () =>
+    fetch(API.products).then(r => r.json()).then(setProducts);
+
+  useEffect(() => { load(); }, []);
+
+  const authHeader = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${getSessionId()}`,
+  });
+
+  const saveProduct = async () => {
+    if (!editing) return;
+    setSaving(true);
+    const method = editing.id ? 'PUT' : 'POST';
+    await fetch(API.products, { method, headers: authHeader(), body: JSON.stringify(editing) });
+    await load();
+    setEditing(null);
+    setSaving(false);
+    toast.success(editing.id ? 'Продукт обновлён' : 'Продукт создан');
+  };
+
+  const toggleTemplate = async (productId: number, templateId: number, linked: boolean) => {
+    await fetch(`${API.products}/link`, {
+      method: 'POST', headers: authHeader(),
+      body: JSON.stringify({ product_id: productId, template_id: templateId, action: linked ? 'remove' : 'add' }),
+    });
+    await load();
+  };
+
+  const mmToPx = (mm: number, dpi: number) => Math.round(mm * dpi / 25.4);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-display font-bold text-xl">Форматы книг</h3>
+        <Button size="sm" className="rounded-full font-bold gap-1.5"
+          onClick={() => setEditing({ ...EMPTY_PRODUCT })}>
+          <Icon name="Plus" size={15} /> Новый формат
+        </Button>
+      </div>
+
+      {/* Форма создания/редактирования */}
+      {editing && (
+        <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-3">
+          <p className="font-bold text-sm">{editing.id ? 'Редактировать' : 'Новый'} формат</p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs font-semibold">Название</Label>
+              <Input value={editing.name ?? ''} onChange={e => setEditing(p => ({...p!, name: e.target.value}))} placeholder="Книга 25×25 см" className="rounded-xl h-8 text-sm mt-0.5" />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Размер (см)</Label>
+              <Input value={editing.size_cm ?? ''} onChange={e => setEditing(p => ({...p!, size_cm: e.target.value}))} placeholder="25x25" className="rounded-xl h-8 text-sm mt-0.5" />
+            </div>
+          </div>
+          <p className="text-xs font-semibold text-muted-foreground">Обложка (мм)</p>
+          <div className="grid grid-cols-3 gap-2">
+            {(['cover_mm_w','cover_mm_h','dpi'] as const).map(f => (
+              <div key={f}>
+                <Label className="text-xs">{f === 'cover_mm_w' ? 'Ш' : f === 'cover_mm_h' ? 'В' : 'DPI'}</Label>
+                <Input type="number" value={(editing as Record<string,number>)[f] ?? 0} onChange={e => setEditing(p => ({...p!, [f]: +e.target.value}))} className="rounded-lg h-8 text-sm mt-0.5" />
+              </div>
+            ))}
+          </div>
+          <p className="text-xs font-semibold text-muted-foreground">Разворот (мм)</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(['spread_mm_w','spread_mm_h'] as const).map(f => (
+              <div key={f}>
+                <Label className="text-xs">{f === 'spread_mm_w' ? 'Ш' : 'В'}</Label>
+                <Input type="number" value={(editing as Record<string,number>)[f] ?? 0} onChange={e => setEditing(p => ({...p!, [f]: +e.target.value}))} className="rounded-lg h-8 text-sm mt-0.5" />
+              </div>
+            ))}
+          </div>
+          <div>
+            <Label className="text-xs font-semibold">Надбавка к цене, ₽</Label>
+            <Input type="number" value={editing.price_modifier ?? 0} onChange={e => setEditing(p => ({...p!, price_modifier: +e.target.value}))} className="rounded-xl h-8 text-sm mt-0.5 w-32" />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={saveProduct} disabled={saving} className="rounded-full font-bold">
+              {saving ? <Icon name="Loader2" size={14} className="animate-spin" /> : <Icon name="Save" size={14} />} Сохранить
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(null)} className="rounded-full">Отмена</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Список продуктов */}
+      {products.map(p => (
+        <div key={p.id} className="bg-card border border-border rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold">{p.name}</p>
+              <p className="text-xs text-muted-foreground">
+                Обложка: {p.cover_mm_w}×{p.cover_mm_h}мм · Разворот: {p.spread_mm_w}×{p.spread_mm_h}мм · {p.dpi}dpi
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Обложка: {mmToPx(p.cover_mm_w, p.dpi)}×{mmToPx(p.cover_mm_h, p.dpi)}px
+              </p>
+              {p.price_modifier > 0 && <p className="text-xs text-primary font-semibold">+{p.price_modifier}₽ к цене</p>}
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setEditing({...p})} className="rounded-full">
+              <Icon name="Pencil" size={14} />
+            </Button>
+          </div>
+
+          {/* Привязка шаблонов */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Доступные шаблоны:</p>
+            <div className="flex flex-wrap gap-2">
+              {templates.map(t => {
+                const linked = p.template_ids.includes(t.id);
+                return (
+                  <button key={t.id} onClick={() => toggleTemplate(p.id, t.id, linked)}
+                    className={`text-xs px-2.5 py-1 rounded-full border font-semibold transition-all ${linked ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:border-primary/50'}`}>
+                    {linked ? '✓ ' : ''}{t.title}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const Admin = () => {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [active, setActive] = useState<Template | null>(null);
   const [busy, setBusy] = useState(false);
+  const [adminTab, setAdminTab] = useState<'templates' | 'products'>('templates');
 
   const load = async () => setTemplates(await fetchTemplates());
   useEffect(() => { load(); }, []);
@@ -235,25 +380,44 @@ const Admin = () => {
         </div>
       </header>
 
-      <div className="container py-8 grid lg:grid-cols-[320px_1fr] gap-8">
-        <aside className="space-y-3">
-          <Button onClick={newTemplate} className="w-full rounded-full font-bold">
-            <Icon name="Plus" size={18} /> Новый шаблон
-          </Button>
-          {templates.map((t) => (
-            <button key={t.id} onClick={() => openTemplate(t.id)}
-              className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${active?.id === t.id ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'}`}>
-              <div className="font-bold">{t.title}</div>
-              <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                {t.is_published ? <span className="text-green-600">● Опубликован</span> : <span>○ Черновик</span>}
-              </div>
+      <div className="container py-8 grid lg:grid-cols-[280px_1fr] gap-8">
+        <aside className="space-y-2">
+          {/* Вкладки */}
+          <div className="flex rounded-2xl bg-muted p-1 gap-1 mb-3">
+            <button onClick={() => setAdminTab('templates')}
+              className={`flex-1 py-1.5 text-sm font-bold rounded-xl transition-all ${adminTab === 'templates' ? 'bg-card shadow' : 'text-muted-foreground'}`}>
+              Шаблоны
             </button>
-          ))}
-          <PrintSettingsPanel />
+            <button onClick={() => setAdminTab('products')}
+              className={`flex-1 py-1.5 text-sm font-bold rounded-xl transition-all ${adminTab === 'products' ? 'bg-card shadow' : 'text-muted-foreground'}`}>
+              Форматы
+            </button>
+          </div>
+
+          {adminTab === 'templates' && (
+            <>
+              <Button onClick={newTemplate} className="w-full rounded-full font-bold">
+                <Icon name="Plus" size={18} /> Новый шаблон
+              </Button>
+              {templates.map((t) => (
+                <button key={t.id} onClick={() => openTemplate(t.id)}
+                  className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${active?.id === t.id ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'}`}>
+                  <div className="font-bold">{t.title}</div>
+                  <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                    {t.is_published ? <span className="text-green-600">● Опубликован</span> : <span>○ Черновик</span>}
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
         </aside>
 
         <main>
-          {!active ? (
+          {adminTab === 'products' ? (
+            <div className="bg-card rounded-3xl p-6">
+              <ProductsPanel templates={templates} />
+            </div>
+          ) : !active ? (
             <div className="bg-card rounded-3xl p-16 text-center text-muted-foreground">
               <Icon name="BookOpen" size={48} className="mx-auto mb-4 text-primary/40" />
               Выберите шаблон слева или создайте новый

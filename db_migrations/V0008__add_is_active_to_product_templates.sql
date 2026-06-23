@@ -1,0 +1,2 @@
+ALTER TABLE t_p50926286_baby_book_order.product_templates
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
