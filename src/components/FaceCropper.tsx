@@ -114,56 +114,54 @@ export default function FaceCropper({ src, onCrop }: FaceCropperProps) {
           draggable={false}
         />
 
-        {/* Затемнение вокруг рамки */}
-        <div className="absolute inset-0 pointer-events-none" style={{
-          background: `
-            linear-gradient(to bottom,
-              rgba(0,0,0,0.45) ${rect.y * 100}%,
-              transparent ${rect.y * 100}%,
-              transparent ${(rect.y + rect.h) * 100}%,
-              rgba(0,0,0,0.45) ${(rect.y + rect.h) * 100}%
-            )
-          `
-        }} />
-        <div className="absolute inset-0 pointer-events-none" style={{
-          background: `
-            linear-gradient(to right,
-              rgba(0,0,0,0.45) ${rect.x * 100}%,
-              transparent ${rect.x * 100}%,
-              transparent ${(rect.x + rect.w) * 100}%,
-              rgba(0,0,0,0.45) ${(rect.x + rect.w) * 100}%
-            )
-          `
-        }} />
+        {/* Затемнение вокруг овала через SVG */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <mask id="oval-mask">
+              <rect width="100" height="100" fill="white" />
+              <ellipse
+                cx={(rect.x + rect.w / 2) * 100}
+                cy={(rect.y + rect.h / 2) * 100}
+                rx={(rect.w / 2) * 100}
+                ry={(rect.h / 2) * 100}
+                fill="black"
+              />
+            </mask>
+          </defs>
+          <rect width="100" height="100" fill="rgba(0,0,0,0.5)" mask="url(#oval-mask)" />
+        </svg>
 
-        {/* Рамка */}
+        {/* Овальная рамка */}
         <div
           onMouseDown={onMoveDown}
           onTouchStart={onMoveDown}
-          className="absolute border-[3px] border-primary bg-primary/10 cursor-move rounded-lg"
+          className="absolute cursor-move"
           style={{
             left: `${rect.x * 100}%`,
             top: `${rect.y * 100}%`,
             width: `${rect.w * 100}%`,
             height: `${rect.h * 100}%`,
+            borderRadius: '50%',
+            border: '3px solid hsl(var(--primary))',
+            boxShadow: '0 0 0 1px hsl(var(--primary) / 0.3)',
           }}
         >
-          <span className="absolute -top-7 left-0 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-md whitespace-nowrap">
+          <span className="absolute -top-7 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-md whitespace-nowrap">
             Лицо ребёнка
           </span>
 
-          {/* Угловые метки */}
-          <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-primary" />
-          <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-primary" />
-          <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-primary" />
-
-          {/* Хэндл ресайза — правый нижний угол */}
+          {/* Хэндл ресайза — правый нижний край овала */}
           <div
             onMouseDown={onResizeDown}
             onTouchStart={onResizeDown}
-            className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize flex items-center justify-center"
+            className="absolute cursor-se-resize flex items-center justify-center"
+            style={{ bottom: '14%', right: '4%', width: 20, height: 20 }}
           >
-            <div className="w-3 h-3 bg-primary rounded-sm" />
+            <div className="w-3.5 h-3.5 bg-primary rounded-full border-2 border-white shadow" />
           </div>
         </div>
       </div>
