@@ -8,6 +8,7 @@ import Admin from "./pages/Admin";
 import Login from "./pages/Login";
 import Account from "./pages/Account";
 import Cart from "./pages/Cart";
+import BookPreview from "./pages/BookPreview";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { CartProvider } from "./context/CartContext";
@@ -28,6 +29,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/account" element={<Account />} />
       <Route path="/cart" element={<Cart />} />
+      <Route path="/book-preview" element={<BookPreview />} />
       <Route path="/admin" element={<AdminRoute />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

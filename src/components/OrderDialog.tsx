@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,10 +8,11 @@ import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
 import { Template, uploadFile, createOrder, fetchTemplate, faceSwap } from '@/lib/api';
 
-type Step = 'form' | 'processing' | 'preview';
+type Step = 'form' | 'processing';
 type ProcessStage = 'upload' | 'generate' | 'done';
 
 const OrderDialog = ({ template, open, onClose }: { template: Template | null; open: boolean; onClose: () => void }) => {
+  const navigate = useNavigate();
   const [step, setStep] = useState<Step>('form');
   const [stage, setStage] = useState<ProcessStage>('upload');
   const [name, setName] = useState('');
@@ -20,8 +22,6 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
   const [email, setEmail] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState('');
-  const [pages, setPages] = useState<string[]>([]);
-  const [generatedUrl, setGeneratedUrl] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
 
   if (!template) return null;
@@ -56,24 +56,31 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
 
       setStage('generate');
 
+      let resultPages: string[] = [];
       if (templatePages.length > 0) {
-        const resultPages: string[] = [];
         for (let i = 0; i < templatePages.length; i++) {
           setCurrentPage(i + 1);
           const swapped = await faceSwap(photoUrl, templatePages[i].image_url);
           resultPages.push(swapped);
-          if (i === 0) setGeneratedUrl(swapped);
         }
-        setPages(resultPages);
       } else {
         const swapped = await faceSwap(photoUrl, template.cover_url || photoUrl);
-        setGeneratedUrl(swapped);
-        setPages([swapped]);
+        resultPages = [swapped];
       }
 
       setCurrentPage(0);
       setStage('done');
-      setStep('preview');
+
+      sessionStorage.setItem('bookPreview', JSON.stringify({
+        pages: resultPages,
+        templateId: template.id,
+        templateTitle: template.title,
+        templatePrice: template.price,
+        childName: name,
+      }));
+
+      onClose();
+      navigate('/book-preview');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error(`Ошибка: ${msg}`);
@@ -83,7 +90,7 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
 
   const reset = () => {
     setStep('form'); setStage('upload'); setName(''); setAge(''); setHairColor(''); setEyeColor(''); setEmail('');
-    setPhoto(null); setPhotoPreview(''); setPages([]); setGeneratedUrl(''); setCurrentPage(0);
+    setPhoto(null); setPhotoPreview(''); setCurrentPage(0);
     onClose();
   };
 
@@ -92,7 +99,7 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
       <DialogContent className="max-w-2xl rounded-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-display text-2xl">
-            {step === 'preview' ? 'Предпросмотр книги' : `Книга «${template.title}»`}
+            {`Книга «${template.title}»`}
           </DialogTitle>
         </DialogHeader>
 
@@ -201,38 +208,6 @@ const OrderDialog = ({ template, open, onClose }: { template: Template | null; o
                 );
               })}
             </div>
-          </div>
-        )}
-
-        {step === 'preview' && (
-          <div className="space-y-5">
-            <div className="bg-primary/5 rounded-2xl p-4 text-center">
-              <p className="text-sm font-bold mb-1">🎉 Книга для {name} готова!</p>
-              <p className="text-xs text-muted-foreground">Нейросеть вставила лицо на {pages.length} {pages.length === 1 ? 'страницу' : 'страниц'}</p>
-            </div>
-            {pages.length > 0 && (
-              <div className="grid grid-cols-2 gap-3">
-                {pages.map((src, i) => (
-                  <div key={i} className="rounded-xl overflow-hidden border border-border relative">
-                    <img src={src} alt={`Страница ${i + 1}`} className="w-full aspect-square object-cover" />
-                    <span className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-full">{i + 1}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground text-center">Формат 20×20 см, выгрузка в JPEG после оплаты</p>
-            <div className="flex flex-col gap-2">
-              {pages.map((src, i) => (
-                <a key={i} href={src} download={`страница-${i + 1}.jpg`} target="_blank" rel="noreferrer">
-                  <Button variant="outline" size="sm" className="w-full rounded-full">
-                    <Icon name="Download" size={15} /> Скачать страницу {i + 1}
-                  </Button>
-                </a>
-              ))}
-            </div>
-            <Button onClick={reset} size="lg" className="w-full rounded-full font-bold">
-              <Icon name="ShoppingCart" size={18} /> Оформить заказ
-            </Button>
           </div>
         )}
       </DialogContent>
