@@ -79,20 +79,49 @@ export default function FaceCropper({ src, onCrop }: FaceCropperProps) {
 
   const handleConfirm = () => {
     const img = imgRef.current;
-    if (!img) return;
-    const canvas = document.createElement('canvas');
+    const container = containerRef.current;
+    if (!img || !container) return;
+
+    // Вычисляем реальное положение фото внутри контейнера (object-contain)
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+
+    const scale = Math.min(cw / iw, ch / ih);
+    const renderedW = iw * scale;
+    const renderedH = ih * scale;
+    const offsetX = (cw - renderedW) / 2; // letterbox отступ слева
+    const offsetY = (ch - renderedH) / 2; // letterbox отступ сверху
+
+    // rect в пикселях контейнера → пиксели натурального фото
+    const rx = rect.x * cw;
+    const ry = rect.y * ch;
+    const rw = rect.w * cw;
+    const rh = rect.h * ch;
+
+    const sx = (rx - offsetX) / scale;
+    const sy = (ry - offsetY) / scale;
+    const sw = rw / scale;
+    const sh = rh / scale;
+
+    // Canvas в пропорциях выделения, чтобы не сплющивать
     const size = 512;
-    canvas.width = size;
-    canvas.height = size;
+    const aspect = sw / sh;
+    const canvasW = aspect >= 1 ? size : Math.round(size * aspect);
+    const canvasH = aspect >= 1 ? Math.round(size / aspect) : size;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasW;
+    canvas.height = canvasH;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const sx = rect.x * img.naturalWidth;
-    const sy = rect.y * img.naturalHeight;
-    const sw = rect.w * img.naturalWidth;
-    const sh = rect.h * img.naturalHeight;
-
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+    ctx.drawImage(img,
+      Math.max(0, sx), Math.max(0, sy),
+      Math.min(sw, iw - sx), Math.min(sh, ih - sy),
+      0, 0, canvasW, canvasH
+    );
     canvas.toBlob((blob) => {
       if (!blob) return;
       onCrop(new File([blob], 'face-crop.jpg', { type: 'image/jpeg' }));
